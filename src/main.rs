@@ -73,6 +73,9 @@ async fn main() -> std::io::Result<()> {
         }
         std::fs::create_dir_all(&target)?;
     }
+    for folder in categories::BACKUP_FOLDERS {
+        std::fs::create_dir_all(shared_dir.join(categories::BACKUP_PARENT).join(folder))?;
+    }
 
     let user_store = match users::UserStore::load(config.users_file.clone()) {
         Ok(s) => web::Data::new(s),
