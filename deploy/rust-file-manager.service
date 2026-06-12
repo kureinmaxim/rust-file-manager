@@ -1,0 +1,31 @@
+# Example systemd unit for rust-file-manager.
+# Install: copy to /etc/systemd/system/, create the user and directories,
+# put secrets into /etc/rust-file-manager/env, then:
+#   systemctl daemon-reload && systemctl enable --now rust-file-manager
+
+[Unit]
+Description=Rust File Manager
+After=network.target
+
+[Service]
+Type=simple
+# Run as a dedicated unprivileged user, never as root:
+#   useradd --system --home /var/lib/rust-file-manager filemgr
+User=filemgr
+Group=filemgr
+WorkingDirectory=/var/lib/rust-file-manager
+ExecStart=/usr/local/bin/rust-file-manager
+# Contains ADMIN_PASSWORD_HASH, SESSION_SECRET, etc. (chmod 600)
+EnvironmentFile=/etc/rust-file-manager/env
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/rust-file-manager
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
