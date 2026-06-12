@@ -17,7 +17,7 @@
 
 ## Рекомендуемый способ: split DNS в Headscale
 
-Внутри tailnet домен `hip.kurein.me` резолвится в Tailscale-IP сервера,
+Внутри tailnet домен `files.example.com` резолвится в Tailscale-IP сервера,
 снаружи — как обычно, в публичный IP через Cloudflare. Адрес в браузере и
 сертификат Let's Encrypt одни и те же (имя совпадает), но трафик участников
 tailnet идёт напрямую по WireGuard.
@@ -39,7 +39,7 @@ tailscale ip -4    # например 100.64.0.5
 dns:
   magic_dns: true
   extra_records:
-    - name: "hip.kurein.me"
+    - name: "files.example.com"
       type: "A"
       value: "100.64.0.5"   # Tailscale-IP сервера из шага 1
 ```
@@ -53,12 +53,12 @@ sudo systemctl restart headscale
 ### 4. Проверить с клиента tailnet
 
 ```bash
-nslookup hip.kurein.me   # должен вернуть 100.x.y.z, а не публичный IP
-curl -I https://hip.kurein.me
+nslookup files.example.com   # должен вернуть 100.x.y.z, а не публичный IP
+curl -I https://files.example.com
 ```
 
 Клиенты должны использовать DNS из tailnet (на клиенте:
-`tailscale set --accept-dns=true`). После этого `https://hip.kurein.me`
+`tailscale set --accept-dns=true`). После этого `https://files.example.com`
 открывается напрямую по WireGuard, сертификат валиден, вход работает.
 
 Кто не состоит в tailnet, продолжает ходить обычным путём — через
@@ -73,7 +73,7 @@ Cloudflare на публичный IP.
   недоступную self-hosted контрол-серверу.
 
 - **Отдельный поддомен для tailnet** — создать в Cloudflare запись
-  `files-ts.kurein.me → 100.x.y.z` (приватный IP в публичном DNS — это
+  `files-ts.example.com → 100.x.y.z` (приватный IP в публичном DNS — это
   допустимо) и выписать сертификат через DNS-01 challenge, потому что
   HTTP-01 до приватного адреса не достучится:
 
@@ -82,7 +82,7 @@ Cloudflare на публичный IP.
   # ~/.secrets/cloudflare.ini: dns_cloudflare_api_token = <токен с правом DNS:Edit>
   sudo certbot certonly --dns-cloudflare \
       --dns-cloudflare-credentials ~/.secrets/cloudflare.ini \
-      -d files-ts.kurein.me
+      -d files-ts.example.com
   ```
 
   Плюс второй `server`-блок в nginx с этим именем и сертификатом. Работает,

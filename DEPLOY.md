@@ -1,20 +1,21 @@
-# Развёртывание на VPS (hip.kurein.me)
+# Развёртывание на VPS
 
-Пошаговая инструкция: бинарник + systemd + nginx + HTTPS (Let's Encrypt) за Cloudflare.
+Пошаговая инструкция: бинарник + systemd + nginx + HTTPS. Везде ниже
+используется домен-плейсхолдер `files.example.com` — подставьте свой.
 
-Приложение слушает только `127.0.0.1:8080`, наружу его отдаёт nginx по HTTPS.
+Приложение слушает только `127.0.0.1:8080`, наружу его отдаёт nginx.
 
 Если сервер состоит в сети Tailscale/Headscale, доступ можно организовать и
 через неё, минуя публичный интернет — см. [TAILSCALE.md](TAILSCALE.md).
 
-## 0. DNS (Cloudflare)
+## 0. DNS
 
-A-запись `hip.kurein.me` должна указывать на IP вашего VPS. Прокси Cloudflare
-(оранжевое облако) оставить можно, но учтите:
+A-запись `files.example.com` должна указывать на IP вашего VPS.
 
-- в разделе **SSL/TLS** поставьте режим **Full (strict)** после выпуска сертификата (шаг 4);
-- бесплатный план Cloudflare ограничивает загрузку **100 МБ на запрос** — если
-  нужны файлы больше, переключите запись на «DNS only».
+Если DNS обслуживается Cloudflare с включённым прокси (оранжевое облако) —
+прочитайте [GUIDE_cloudflare.md](GUIDE_cloudflare.md) **до** шага 4: выбор
+способа HTTPS зависит от того, свободен ли на сервере порт 443. Также учтите,
+что бесплатный план Cloudflare ограничивает загрузку **100 МБ на запрос**.
 
 ## 1. Сборка и установка бинарника
 
@@ -34,6 +35,11 @@ sudo cp target/release/rust-file-manager /usr/local/bin/
 Шаблоны вшиты в бинарник — на сервере нужен только он (можно собрать на своей
 машине под Linux x86_64 и скопировать по `scp`).
 
+> **Мало памяти?** На VPS с 1–2 ГБ RAM без swap линковка release-сборки
+> (LTO) может упасть по памяти. Добавьте временный swap:
+> `fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile`
+> — а после сборки уберите: `swapoff /swapfile && rm /swapfile`.
+
 ## 2. Пользователь, директории, секреты
 
 ```bash
@@ -51,6 +57,10 @@ echo 'ваш-пароль-админа' | rust-file-manager hash-password
 openssl rand -base64 64 | tr -d '\n'; echo
 ```
 
+> Пароль придумывайте длинный (16+ символов): сервис смотрит в интернет,
+> ограничителя попыток входа в приложении нет — защита целиком на стойкости
+> пароля. Удобно сгенерировать: `openssl rand -base64 16`.
+
 Создайте `/etc/rust-file-manager/env`:
 
 ```ini
@@ -64,12 +74,18 @@ MAX_FILE_SIZE_MB=200
 COOKIE_SECURE=true
 ```
 
-Два критичных момента:
+Три критичных момента:
 
 - хеш пароля — **обязательно в одинарных кавычках**, иначе `$2b$12$...`
   обрежется при подстановке переменных (приложение это проверит и откажется
   стартовать);
-- `COOKIE_SECURE=true` обязателен при работе по HTTPS за nginx.
+- длинный хеш удобнее вписывать не руками, а командой —
+  `NEW_HASH=$(echo 'пароль' | rust-file-manager hash-password)` и затем
+  `sed -i "s|^ADMIN_PASSWORD_HASH=.*|ADMIN_PASSWORD_HASH='${NEW_HASH}'|" /etc/rust-file-manager/env` —
+  при копировании из терминала строка легко рвётся;
+- `COOKIE_SECURE=true` ставьте при работе по HTTPS. Если планируете заходить
+  и по http (например, через Tailscale по IP) — оставьте `false`, иначе вход
+  по http работать не будет.
 
 ```bash
 sudo chmod 600 /etc/rust-file-manager/env
@@ -84,31 +100,52 @@ sudo cp deploy/rust-file-manager.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now rust-file-manager
 systemctl status rust-file-manager        # active (running)
-curl -I http://127.0.0.1:8080             # сервер отвечает
+curl -sI http://127.0.0.1:8080/login | head -1   # HTTP/1.1 200 OK
 ```
 
 ## 4. nginx + HTTPS
 
+**Сначала проверьте, кто занимает порт 443:**
+
+```bash
+sudo ss -tlnp | grep ':443'
+```
+
+### Вариант А — порт 443 свободен (обычный сервер)
+
+Классическая схема с Let's Encrypt:
+
 ```bash
 sudo apt install -y nginx certbot python3-certbot-nginx
-sudo cp deploy/nginx.example.conf /etc/nginx/sites-available/hip.kurein.me
-sudo sed -i 's/example.com/hip.kurein.me/' /etc/nginx/sites-available/hip.kurein.me
-sudo ln -s /etc/nginx/sites-available/hip.kurein.me /etc/nginx/sites-enabled/
+sudo cp deploy/nginx.example.conf /etc/nginx/sites-available/files.example.com
+sudo sed -i 's/example.com/files.example.com/' /etc/nginx/sites-available/files.example.com
+sudo ln -s /etc/nginx/sites-available/files.example.com /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
 
-sudo certbot --nginx -d hip.kurein.me
+sudo certbot --nginx -d files.example.com
 ```
 
-В конфиге стоит `client_max_body_size 200M` — держите его равным
-`MAX_FILE_SIZE_MB`. После выпуска сертификата включите в Cloudflare режим
-**Full (strict)**.
+### Вариант Б — порт 443 занят другим сервисом
+
+Типичная ситуация, если на том же VPS живёт VPN/прокси-транспорт (Caddy,
+Xray, Hysteria и т.п.), которому нужен 443. **Не запускайте certbot --nginx** —
+он попытается добавить nginx-листенер на 443 и сломает тот сервис.
+
+Вместо этого HTTPS терминируется на Cloudflare, а nginx поднимает TLS на
+альтернативном порту (2083) с бесплатным Origin CA сертификатом — полная
+пошаговая инструкция: [GUIDE_cloudflare.md](GUIDE_cloudflare.md).
+
+В обоих вариантах держите `client_max_body_size` в nginx равным
+`MAX_FILE_SIZE_MB` приложения.
 
 ## 5. Файрвол
 
 ```bash
 sudo ufw allow OpenSSH
-sudo ufw allow 'Nginx Full'   # 80 + 443
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp        # вариант А
+sudo ufw allow 2083/tcp       # вариант Б (Cloudflare-порт)
 sudo ufw enable
 ```
 
@@ -116,8 +153,16 @@ sudo ufw enable
 
 ## 6. Проверка
 
-Откройте `https://hip.kurein.me` — страница входа, логин `admin` + ваш пароль.
-Логи: `journalctl -u rust-file-manager -f`.
+Откройте `https://files.example.com` — страница входа, логин `admin` + ваш
+пароль. Логи: `journalctl -u rust-file-manager -f`.
+
+Если вход говорит «Неверное имя пользователя или пароль», а пароль точно
+верный — почти наверняка повреждён хеш в env-файле (см. §2, способ с `sed`).
+Проверить можно прямо на сервере, минуя браузер:
+
+```bash
+curl -s -X POST http://127.0.0.1:8080/login -d 'username=admin&password=ВАШ-ПАРОЛЬ'
+```
 
 ---
 
