@@ -6,6 +6,7 @@
 
 # User data
 /uploads/
+/users.json
 
 # Local-only files (private configs, legacy code, personal data)
 /_local/
