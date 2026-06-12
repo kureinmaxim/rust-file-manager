@@ -1,11 +1,12 @@
+mod admin;
 mod auth;
 mod categories;
 mod config;
 mod files;
+mod users;
 
 use std::io::Read;
 
-use actix_files::Files;
 use actix_session::config::PersistentSession;
 use actix_session::{storage::CookieSessionStore, SessionMiddleware};
 use actix_web::cookie::{time::Duration, SameSite};
@@ -58,9 +59,28 @@ async fn main() -> std::io::Result<()> {
     };
 
     std::fs::create_dir_all(&config.upload_dir)?;
+    std::fs::create_dir_all(config.upload_dir.join(files::HOME_DIR))?;
+    let shared_dir = config.upload_dir.join(files::SHARED_DIR);
+    std::fs::create_dir_all(&shared_dir)?;
+    // Pre-multi-user installs kept categories at the upload root; move them
+    // into the shared zone so existing files stay visible.
     for (category, _) in categories::FILE_CATEGORIES {
-        std::fs::create_dir_all(config.upload_dir.join(category))?;
+        let legacy = config.upload_dir.join(category);
+        let target = shared_dir.join(category);
+        if legacy.is_dir() && !target.exists() {
+            std::fs::rename(&legacy, &target)?;
+            tracing::info!(category, "migrated legacy category dir into shared zone");
+        }
+        std::fs::create_dir_all(&target)?;
     }
+
+    let user_store = match users::UserStore::load(config.users_file.clone()) {
+        Ok(s) => web::Data::new(s),
+        Err(e) => {
+            eprintln!("Failed to load users file: {e}");
+            std::process::exit(1);
+        }
+    };
 
     let mut handlebars = Handlebars::new();
     handlebars
@@ -94,12 +114,22 @@ async fn main() -> std::io::Result<()> {
 
         App::new()
             .app_data(app_config.clone())
+            .app_data(user_store.clone())
             .app_data(handlebars.clone())
             .wrap(Logger::default())
             .wrap(session_middleware)
             .route("/login", web::get().to(auth::login_page))
             .route("/login", web::post().to(auth::login))
             .route("/logout", web::post().to(auth::logout))
+            .route("/register", web::get().to(auth::register_page))
+            .route("/register", web::post().to(auth::register))
+            .service(
+                web::scope("/admin")
+                    .wrap(from_fn(auth::require_admin))
+                    .wrap(from_fn(auth::require_auth))
+                    .service(admin::create_invite)
+                    .service(admin::delete_user),
+            )
             .service(
                 web::scope("")
                     .wrap(from_fn(auth::require_auth))
@@ -107,10 +137,7 @@ async fn main() -> std::io::Result<()> {
                     .service(files::upload)
                     .service(files::delete_file)
                     .service(files::rename_file)
-                    .service(
-                        Files::new("/uploads", app_config.upload_dir.clone())
-                            .use_last_modified(true),
-                    ),
+                    .service(files::download),
             )
     })
     .bind(&config.bind_addr)?
