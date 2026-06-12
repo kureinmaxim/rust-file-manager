@@ -29,7 +29,7 @@ source "$HOME/.cargo/env"
 git clone https://github.com/kureinmaxim/rust-file-manager.git
 cd rust-file-manager
 cargo build --release
-sudo cp target/release/rust-file-manager /usr/local/bin/
+sudo install target/release/rust-file-manager /usr/local/bin/rust-file-manager
 ```
 
 Шаблоны вшиты в бинарник — на сервере нужен только он (можно собрать на своей
@@ -236,7 +236,7 @@ uploads/
 ```bash
 cd ~/rust-file-manager && git pull
 cargo build --release
-sudo cp target/release/rust-file-manager /usr/local/bin/
+sudo install target/release/rust-file-manager /usr/local/bin/rust-file-manager
 sudo systemctl restart rust-file-manager
 ```
 
