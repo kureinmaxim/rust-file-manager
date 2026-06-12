@@ -29,6 +29,9 @@ fn hash_password_and_exit() -> ! {
     }
     let hash = bcrypt::hash(password, bcrypt::DEFAULT_COST).expect("bcrypt failed");
     println!("{hash}");
+    // Single quotes are required in .env: dotenvy expands $-sequences in
+    // unquoted/double-quoted values, which silently corrupts bcrypt hashes.
+    eprintln!("\nAdd this line to your .env (single quotes matter):\nADMIN_PASSWORD_HASH='{hash}'");
     std::process::exit(0);
 }
 

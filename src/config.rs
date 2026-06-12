@@ -28,6 +28,18 @@ impl AppConfig {
                 .to_string()
         })?;
 
+        // dotenvy expands $-sequences in unquoted/double-quoted .env values,
+        // which truncates bcrypt hashes; fail fast instead of rejecting every login.
+        if !admin_password_hash.starts_with("$2") {
+            return Err(format!(
+                "ADMIN_PASSWORD_HASH does not look like a bcrypt hash (got \"{}...\").\n\
+                 If it is set in a .env file, wrap the value in SINGLE quotes:\n\
+                 ADMIN_PASSWORD_HASH='$2b$12$...'\n\
+                 (without quotes, $-sequences are expanded as variables and the hash is corrupted)",
+                admin_password_hash.chars().take(8).collect::<String>()
+            ));
+        }
+
         let max_file_size_mb = match env::var("MAX_FILE_SIZE_MB") {
             Ok(v) => v
                 .parse::<usize>()
