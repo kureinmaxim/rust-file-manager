@@ -1,5 +1,7 @@
 # Rust File Manager
 
+**Текущая версия:** 1.1.1 (12.06.2026)
+
 Лёгкий self-hosted файловый менеджер на Rust (Actix Web): загрузка, скачивание, переименование и удаление файлов через веб-интерфейс. Файлы автоматически раскладываются по категориям (Фото, Документы, Программы, Видео, Другие) по расширению.
 
 ## Возможности
@@ -150,12 +152,17 @@ sudo systemctl daemon-reload && sudo systemctl enable --now rust-file-manager
 - Cookie сессии: `HttpOnly`, `SameSite=Strict`, подпись секретным ключом; срок жизни 12 часов.
 - Мутирующие запросы защищены от CSRF политикой `SameSite=Strict`.
 
+## Версионирование
+
+Версия и дата релиза живут в `Cargo.toml` и управляются командой `cargo xtask` (`status` / `sync` / `bump` / `release`). Подробности — в [VERSION_MANAGEMENT.md](VERSION_MANAGEMENT.md). Текущая версия, git-коммит и дата сборки видны в футере веб-интерфейса и в логе при старте.
+
 ## Разработка
 
 ```bash
 cargo test          # юнит-тесты (категоризация, санитизация имён)
 cargo clippy        # линтер
 RUST_LOG=debug cargo run
+cargo xtask status  # версия и статус синхронизации
 ```
 
 Структура:
@@ -167,8 +174,10 @@ src/
   auth.rs        # вход/выход, guard-middleware сессий
   files.rs       # index, upload, delete, rename
   categories.rs  # категории, санитизация имён файлов (+ тесты)
+build.rs         # git-коммит/ветка/дата сборки → футер UI и лог
 templates/       # HTML (встраивается в бинарник при сборке)
 deploy/          # примеры systemd / nginx
+xtask/           # cargo xtask — управление версией (VERSION_MANAGEMENT.md)
 ```
 
 ## Лицензия

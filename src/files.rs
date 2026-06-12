@@ -108,6 +108,9 @@ pub async fn index(
                 "categories": categories,
                 "total_size": format_bytes(folder_size(&config.upload_dir)),
                 "max_file_size": format_bytes(config.max_file_size as u64),
+                "version": env!("CARGO_PKG_VERSION"),
+                "git_commit": env!("BUILD_GIT_COMMIT"),
+                "build_date": env!("BUILD_DATE"),
             }),
         )
         .map_err(actix_web::error::ErrorInternalServerError)?;

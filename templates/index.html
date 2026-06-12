@@ -95,6 +95,12 @@
         }
         .action.danger { background: var(--error-bg); color: var(--error-text); }
         .empty { color: var(--muted); font-style: italic; }
+        .app-footer {
+            margin-top: 24px;
+            text-align: center;
+            color: var(--muted);
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
@@ -133,6 +139,10 @@
     {{#unless categories}}
     <div class="card"><p class="empty">Файлов пока нет — загрузите первый.</p></div>
     {{/unless}}
+
+    <footer class="app-footer">
+        rust-file-manager v{{version}} · коммит {{git_commit}} · сборка {{build_date}}
+    </footer>
 </div>
 
 <script>

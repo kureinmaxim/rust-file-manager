@@ -71,7 +71,14 @@ async fn main() -> std::io::Result<()> {
     let session_key = config.session_key();
     let config = web::Data::new(config);
 
-    tracing::info!(addr = %config.bind_addr, upload_dir = %config.upload_dir.display(), "starting server");
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        commit = env!("BUILD_GIT_COMMIT"),
+        built = env!("BUILD_DATE"),
+        addr = %config.bind_addr,
+        upload_dir = %config.upload_dir.display(),
+        "starting server"
+    );
 
     let app_config = config.clone();
     HttpServer::new(move || {
