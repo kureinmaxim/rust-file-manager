@@ -31,8 +31,11 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 20px;
+            gap: 10px;
+            flex-wrap: wrap;
         }
         header h1 { font-size: 22px; margin: 0; }
+        .who { color: var(--muted); font-size: 13px; }
         .logout-btn {
             background: none;
             border: 1px solid var(--border);
@@ -53,6 +56,13 @@
         .meta { color: var(--muted); font-size: 13px; margin: 4px 0; }
         .upload-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
         .upload-form input[type=file] { flex: 1; min-width: 220px; font-size: 14px; }
+        .upload-form select {
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 14px;
+            background: #fff;
+        }
         .upload-form button {
             background: var(--accent);
             color: #fff;
@@ -63,9 +73,17 @@
             cursor: pointer;
         }
         .upload-form button:disabled { opacity: .6; cursor: wait; }
-        .status { margin: 12px 0 0; padding: 10px 14px; border-radius: 8px; font-size: 14px; display: none; }
+        .status { margin: 12px 0 0; padding: 10px 14px; border-radius: 8px; font-size: 14px; display: none; word-break: break-all; }
         .status.success { display: block; background: var(--success-bg); color: var(--success-text); }
         .status.error { display: block; background: var(--error-bg); color: var(--error-text); }
+        .zone-title {
+            font-size: 18px;
+            margin: 26px 0 12px;
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+        }
+        .zone-title .meta { font-weight: normal; }
         .category h2 {
             font-size: 16px;
             margin: 0 0 10px;
@@ -95,6 +113,38 @@
         }
         .action.danger { background: var(--error-bg); color: var(--error-text); }
         .empty { color: var(--muted); font-style: italic; }
+        .users-list { list-style: none; margin: 10px 0 0; padding: 0; }
+        .users-list li {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 7px 4px;
+            border-bottom: 1px dashed var(--border);
+            font-size: 14px;
+        }
+        .users-list li:last-child { border-bottom: none; }
+        .users-list .name { flex: 1; }
+        .invite-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .invite-row button {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 9px 18px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .invite-link {
+            display: none;
+            margin-top: 12px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            background: var(--accent-soft);
+            font-size: 13px;
+            word-break: break-all;
+        }
+        .invite-link.visible { display: flex; gap: 10px; align-items: center; }
+        .invite-link code { flex: 1; }
         .app-footer {
             margin-top: 24px;
             text-align: center;
@@ -107,38 +157,70 @@
 <div class="container">
     <header>
         <h1>📁 Файловый менеджер</h1>
-        <button class="logout-btn" id="logoutBtn">Выйти</button>
+        <div>
+            <span class="who">👤 {{username}}{{#if is_admin}} (админ){{/if}}</span>
+            <button class="logout-btn" id="logoutBtn">Выйти</button>
+        </div>
     </header>
 
     <div class="card">
         <form id="uploadForm" enctype="multipart/form-data">
             <div class="upload-form">
                 <input type="file" name="file" id="fileInput" required>
+                <select id="zoneSelect" title="Куда загрузить">
+                    <option value="my">🔒 В мои файлы</option>
+                    <option value="shared">👥 В общие файлы</option>
+                </select>
                 <button type="submit" id="uploadBtn">Загрузить</button>
             </div>
         </form>
-        <p class="meta">Максимальный размер файла: {{max_file_size}} · Общий объём: <span id="totalSize">{{total_size}}</span></p>
+        <p class="meta">Максимальный размер файла: {{max_file_size}}</p>
         <div id="status" class="status"></div>
     </div>
 
-    {{#each categories}}
-    <div class="card category" data-category="{{this.category}}">
+    {{#if is_admin}}
+    <div class="card">
+        <h2 style="font-size:16px; margin:0 0 12px;">⚙️ Пользователи</h2>
+        <div class="invite-row">
+            <button id="inviteBtn">Создать ссылку-приглашение</button>
+            <span class="meta">Ссылка одноразовая, действует 7 дней</span>
+        </div>
+        <div class="invite-link" id="inviteLink">
+            <code id="inviteUrl"></code>
+            <button class="action" id="copyInviteBtn">Копировать</button>
+        </div>
+        <ul class="users-list">
+            {{#each users}}
+            <li>
+                <span class="name">👤 {{this.username}}</span>
+                <button class="action danger" data-delete-user="{{this.username}}">Удалить</button>
+            </li>
+            {{/each}}
+        </ul>
+        {{#unless users}}<p class="empty">Пока нет других пользователей — создайте приглашение.</p>{{/unless}}
+    </div>
+    {{/if}}
+
+    {{#each zones}}
+    <h2 class="zone-title">{{this.icon}} {{this.title}} <span class="meta">{{this.total_size}}</span></h2>
+    {{#each this.categories}}
+    <div class="card category">
         <h2>{{this.category}}</h2>
         <ul class="files">
             {{#each this.files}}
             <li>
-                <a class="file" href="/uploads/{{../category}}/{{this}}" target="_blank" rel="noopener">{{this}}</a>
-                <button class="action" data-rename data-category="{{../category}}" data-file="{{this}}">Переименовать</button>
-                <button class="action danger" data-delete data-category="{{../category}}" data-file="{{this}}">Удалить</button>
+                <a class="file" href="/uploads/{{../../scope}}/{{../category}}/{{this}}" target="_blank" rel="noopener">{{this}}</a>
+                <button class="action" data-rename data-scope="{{../../scope}}" data-category="{{../category}}" data-file="{{this}}">Переименовать</button>
+                <button class="action danger" data-delete data-scope="{{../../scope}}" data-category="{{../category}}" data-file="{{this}}">Удалить</button>
             </li>
             {{/each}}
         </ul>
     </div>
     {{/each}}
-
-    {{#unless categories}}
-    <div class="card"><p class="empty">Файлов пока нет — загрузите первый.</p></div>
+    {{#unless this.categories}}
+    <div class="card"><p class="empty">Файлов пока нет.</p></div>
     {{/unless}}
+    {{/each}}
 
     <footer class="app-footer">
         rust-file-manager v{{version}} · коммит {{git_commit}} · сборка {{build_date}}
@@ -166,12 +248,13 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fileInput = document.getElementById('fileInput');
     const button = document.getElementById('uploadBtn');
+    const zone = document.getElementById('zoneSelect').value;
     if (!fileInput.files.length) return;
 
     button.disabled = true;
     showStatus('Загрузка…', true);
     try {
-        const data = await apiCall('/upload', { method: 'POST', body: new FormData(e.target) });
+        const data = await apiCall(`/upload/${zone}`, { method: 'POST', body: new FormData(e.target) });
         showStatus(data.message, data.success);
         if (data.success) setTimeout(() => location.reload(), 800);
     } catch (err) {
@@ -183,13 +266,14 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
 
 document.addEventListener('click', async (e) => {
     const target = e.target;
+    const scope = target.dataset.scope;
     const category = target.dataset.category;
     const file = target.dataset.file;
 
     if (target.hasAttribute('data-delete')) {
         if (!confirm(`Удалить файл «${file}»?`)) return;
         try {
-            const data = await apiCall(`/delete/${encodeURIComponent(category)}/${encodeURIComponent(file)}`, { method: 'DELETE' });
+            const data = await apiCall(`/delete/${scope}/${encodeURIComponent(category)}/${encodeURIComponent(file)}`, { method: 'DELETE' });
             showStatus(data.message, data.success);
             if (data.success) setTimeout(() => location.reload(), 600);
         } catch (err) {
@@ -202,7 +286,7 @@ document.addEventListener('click', async (e) => {
         if (!newName || newName === file) return;
         try {
             const data = await apiCall(
-                `/rename/${encodeURIComponent(category)}/${encodeURIComponent(file)}?newName=${encodeURIComponent(newName)}`,
+                `/rename/${scope}/${encodeURIComponent(category)}/${encodeURIComponent(file)}?newName=${encodeURIComponent(newName)}`,
                 { method: 'POST' }
             );
             showStatus(data.message, data.success);
@@ -211,7 +295,50 @@ document.addEventListener('click', async (e) => {
             if (err.message !== 'unauthorized') showStatus('Ошибка при переименовании', false);
         }
     }
+
+    if (target.hasAttribute('data-delete-user')) {
+        const username = target.dataset.deleteUser;
+        if (!confirm(`Удалить пользователя «${username}» вместе со всеми его личными файлами?`)) return;
+        try {
+            const data = await apiCall(`/admin/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
+            showStatus(data.message, data.success);
+            if (data.success) setTimeout(() => location.reload(), 600);
+        } catch (err) {
+            if (err.message !== 'unauthorized') showStatus('Ошибка при удалении пользователя', false);
+        }
+    }
 });
+
+const inviteBtn = document.getElementById('inviteBtn');
+if (inviteBtn) {
+    inviteBtn.addEventListener('click', async () => {
+        inviteBtn.disabled = true;
+        try {
+            const data = await apiCall('/admin/invites', { method: 'POST' });
+            if (data.success) {
+                document.getElementById('inviteUrl').textContent = data.invite_url;
+                document.getElementById('inviteLink').classList.add('visible');
+                showStatus(data.message, true);
+            } else {
+                showStatus(data.message, false);
+            }
+        } catch (err) {
+            if (err.message !== 'unauthorized') showStatus('Ошибка при создании приглашения', false);
+        } finally {
+            inviteBtn.disabled = false;
+        }
+    });
+
+    document.getElementById('copyInviteBtn').addEventListener('click', async () => {
+        const url = document.getElementById('inviteUrl').textContent;
+        try {
+            await navigator.clipboard.writeText(url);
+            showStatus('Ссылка скопирована в буфер обмена', true);
+        } catch {
+            prompt('Скопируйте ссылку вручную:', url);
+        }
+    });
+}
 
 document.getElementById('logoutBtn').addEventListener('click', async () => {
     await fetch('/logout', { method: 'POST' });

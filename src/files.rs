@@ -2,20 +2,35 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use actix_files::NamedFile;
 use actix_multipart::Multipart;
-use actix_web::{delete, get, post, web, Error, HttpResponse};
+use actix_session::Session;
+use actix_web::{delete, get, post, web, Error, HttpRequest, HttpResponse};
 use futures_util::StreamExt;
 use handlebars::Handlebars;
 use serde::Serialize;
 use serde_json::json;
 
+use crate::auth::{current_user, CurrentUser};
 use crate::categories::{category_for_extension, is_valid_category, sanitize_file_name, FILE_CATEGORIES};
 use crate::config::AppConfig;
+
+pub const SHARED_DIR: &str = "shared";
+pub const HOME_DIR: &str = "home";
 
 #[derive(Serialize)]
 struct CategoryFiles {
     category: String,
     files: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct ZoneView {
+    scope: String,
+    title: String,
+    icon: String,
+    categories: Vec<CategoryFiles>,
+    total_size: String,
 }
 
 #[derive(Serialize)]
@@ -44,6 +59,10 @@ fn not_found(message: impl Into<String>) -> HttpResponse {
     ApiResponse::err(actix_web::http::StatusCode::NOT_FOUND, message.into())
 }
 
+fn unauthorized() -> HttpResponse {
+    ApiResponse::err(actix_web::http::StatusCode::UNAUTHORIZED, "Требуется вход".into())
+}
+
 pub fn format_bytes(bytes: u64) -> String {
     if bytes == 0 {
         return "0 B".to_string();
@@ -68,25 +87,39 @@ fn folder_size(path: &Path) -> u64 {
         .sum()
 }
 
-/// Resolve `<upload_dir>/<category>/<file>`, rejecting invalid categories and
-/// unsafe file names. Both segments are validated, so the result cannot
-/// escape the upload directory.
-fn safe_path(config: &AppConfig, category: &str, file_name: &str) -> Result<PathBuf, HttpResponse> {
+/// Root directory of a zone: `shared/` is visible to everyone, `my` maps to
+/// the per-user `home/<username>/` directory nobody else can reach — the
+/// username comes from the session, never from the URL.
+fn zone_root(config: &AppConfig, scope: &str, user: &CurrentUser) -> Result<PathBuf, HttpResponse> {
+    match scope {
+        "shared" => Ok(config.upload_dir.join(SHARED_DIR)),
+        "my" => Ok(config.upload_dir.join(HOME_DIR).join(&user.username)),
+        _ => Err(bad_request("Недопустимая зона")),
+    }
+}
+
+/// Resolve `<zone>/<category>/<file>`, rejecting invalid categories and
+/// unsafe file names. Every segment is validated, so the result cannot
+/// escape the zone directory.
+fn safe_path(
+    config: &AppConfig,
+    scope: &str,
+    user: &CurrentUser,
+    category: &str,
+    file_name: &str,
+) -> Result<PathBuf, HttpResponse> {
+    let root = zone_root(config, scope, user)?;
     if !is_valid_category(category) {
         return Err(bad_request("Недопустимая категория"));
     }
     let name = sanitize_file_name(file_name).ok_or_else(|| bad_request("Недопустимое имя файла"))?;
-    Ok(config.upload_dir.join(category).join(name))
+    Ok(root.join(category).join(name))
 }
 
-#[get("/")]
-pub async fn index(
-    config: web::Data<AppConfig>,
-    hb: web::Data<Handlebars<'static>>,
-) -> Result<HttpResponse, Error> {
+fn list_zone(root: &Path) -> Vec<CategoryFiles> {
     let mut categories = Vec::new();
     for (category, _) in FILE_CATEGORIES {
-        let dir = config.upload_dir.join(category);
+        let dir = root.join(category);
         let Ok(entries) = fs::read_dir(&dir) else { continue };
 
         let mut files: Vec<String> = entries
@@ -100,13 +133,58 @@ pub async fn index(
             categories.push(CategoryFiles { category: category.to_string(), files });
         }
     }
+    categories
+}
+
+#[get("/")]
+pub async fn index(
+    session: Session,
+    config: web::Data<AppConfig>,
+    store: web::Data<crate::users::UserStore>,
+    hb: web::Data<Handlebars<'static>>,
+) -> Result<HttpResponse, Error> {
+    let Some(user) = current_user(&session) else {
+        return Ok(unauthorized());
+    };
+
+    let my_root = config.upload_dir.join(HOME_DIR).join(&user.username);
+    let shared_root = config.upload_dir.join(SHARED_DIR);
+
+    let zones = vec![
+        ZoneView {
+            scope: "my".into(),
+            title: "Мои файлы".into(),
+            icon: "🔒".into(),
+            categories: list_zone(&my_root),
+            total_size: format_bytes(folder_size(&my_root)),
+        },
+        ZoneView {
+            scope: "shared".into(),
+            title: "Общие файлы".into(),
+            icon: "👥".into(),
+            categories: list_zone(&shared_root),
+            total_size: format_bytes(folder_size(&shared_root)),
+        },
+    ];
+
+    let users: Vec<serde_json::Value> = if user.is_admin {
+        store
+            .list_users()
+            .iter()
+            .map(|u| json!({ "username": u.username }))
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     let html = hb
         .render(
             "index",
             &json!({
-                "categories": categories,
-                "total_size": format_bytes(folder_size(&config.upload_dir)),
+                "username": user.username,
+                "is_admin": user.is_admin,
+                "zones": zones,
+                "users": users,
                 "max_file_size": format_bytes(config.max_file_size as u64),
                 "version": env!("CARGO_PKG_VERSION"),
                 "git_commit": env!("BUILD_GIT_COMMIT"),
@@ -118,11 +196,47 @@ pub async fn index(
     Ok(HttpResponse::Ok().content_type("text/html; charset=utf-8").body(html))
 }
 
-#[post("/upload")]
-pub async fn upload(
-    mut payload: Multipart,
+/// Authenticated download. Replaces a blanket static-files mount: the zone is
+/// resolved against the session, so users can only ever read `shared/` and
+/// their own `home/<username>/`.
+#[get("/uploads/{scope}/{category}/{filename}")]
+pub async fn download(
+    req: HttpRequest,
+    path: web::Path<(String, String, String)>,
+    session: Session,
     config: web::Data<AppConfig>,
 ) -> Result<HttpResponse, Error> {
+    let Some(user) = current_user(&session) else {
+        return Ok(unauthorized());
+    };
+    let (scope, category, file_name) = path.into_inner();
+    let target = match safe_path(&config, &scope, &user, &category, &file_name) {
+        Ok(p) => p,
+        Err(resp) => return Ok(resp),
+    };
+    if !target.is_file() {
+        return Ok(not_found("Файл не найден"));
+    }
+    Ok(NamedFile::open(target)?
+        .use_last_modified(true)
+        .into_response(&req))
+}
+
+#[post("/upload/{scope}")]
+pub async fn upload(
+    scope: web::Path<String>,
+    mut payload: Multipart,
+    session: Session,
+    config: web::Data<AppConfig>,
+) -> Result<HttpResponse, Error> {
+    let Some(user) = current_user(&session) else {
+        return Ok(unauthorized());
+    };
+    let root = match zone_root(&config, &scope, &user) {
+        Ok(r) => r,
+        Err(resp) => return Ok(resp),
+    };
+
     let mut message = String::from("Файл не получен");
 
     while let Some(item) = payload.next().await {
@@ -142,7 +256,7 @@ pub async fn upload(
             .and_then(|e| e.to_str())
             .unwrap_or("");
         let category = category_for_extension(extension);
-        let category_dir = config.upload_dir.join(category);
+        let category_dir = root.join(category);
         fs::create_dir_all(&category_dir)?;
 
         // Avoid overwriting: append (1), (2), ... until the name is free.
@@ -179,20 +293,24 @@ pub async fn upload(
         }
 
         let saved_name = target.file_name().and_then(|n| n.to_str()).unwrap_or("?");
-        tracing::info!(category, file = saved_name, size, "file uploaded");
+        tracing::info!(user = %user.username, scope = %scope.as_str(), category, file = saved_name, size, "file uploaded");
         message = format!("Файл загружен в категорию «{category}»: {saved_name}");
     }
 
-    Ok(ApiResponse::ok(message, Some(format_bytes(folder_size(&config.upload_dir)))))
+    Ok(ApiResponse::ok(message, Some(format_bytes(folder_size(&root)))))
 }
 
-#[delete("/delete/{category}/{filename}")]
+#[delete("/delete/{scope}/{category}/{filename}")]
 pub async fn delete_file(
-    path: web::Path<(String, String)>,
+    path: web::Path<(String, String, String)>,
+    session: Session,
     config: web::Data<AppConfig>,
 ) -> Result<HttpResponse, Error> {
-    let (category, file_name) = path.into_inner();
-    let target = match safe_path(&config, &category, &file_name) {
+    let Some(user) = current_user(&session) else {
+        return Ok(unauthorized());
+    };
+    let (scope, category, file_name) = path.into_inner();
+    let target = match safe_path(&config, &scope, &user, &category, &file_name) {
         Ok(p) => p,
         Err(resp) => return Ok(resp),
     };
@@ -201,11 +319,11 @@ pub async fn delete_file(
         return Ok(not_found("Файл не найден"));
     }
     fs::remove_file(&target)?;
-    tracing::info!(category = %category, file = %file_name, "file deleted");
+    tracing::info!(user = %user.username, scope = %scope, category = %category, file = %file_name, "file deleted");
 
     Ok(ApiResponse::ok(
         format!("Файл удалён: {category}/{file_name}"),
-        Some(format_bytes(folder_size(&config.upload_dir))),
+        None,
     ))
 }
 
@@ -215,18 +333,22 @@ pub struct RenameQuery {
     new_name: String,
 }
 
-#[post("/rename/{category}/{filename}")]
+#[post("/rename/{scope}/{category}/{filename}")]
 pub async fn rename_file(
-    path: web::Path<(String, String)>,
+    path: web::Path<(String, String, String)>,
     query: web::Query<RenameQuery>,
+    session: Session,
     config: web::Data<AppConfig>,
 ) -> Result<HttpResponse, Error> {
-    let (category, file_name) = path.into_inner();
-    let old_path = match safe_path(&config, &category, &file_name) {
+    let Some(user) = current_user(&session) else {
+        return Ok(unauthorized());
+    };
+    let (scope, category, file_name) = path.into_inner();
+    let old_path = match safe_path(&config, &scope, &user, &category, &file_name) {
         Ok(p) => p,
         Err(resp) => return Ok(resp),
     };
-    let new_path = match safe_path(&config, &category, &query.new_name) {
+    let new_path = match safe_path(&config, &scope, &user, &category, &query.new_name) {
         Ok(p) => p,
         Err(resp) => return Ok(resp),
     };
@@ -239,7 +361,7 @@ pub async fn rename_file(
     }
 
     fs::rename(&old_path, &new_path)?;
-    tracing::info!(category = %category, from = %file_name, to = %query.new_name, "file renamed");
+    tracing::info!(user = %user.username, scope = %scope, category = %category, from = %file_name, to = %query.new_name, "file renamed");
 
     Ok(ApiResponse::ok(
         format!("Файл переименован: {} → {}", file_name, query.new_name),
