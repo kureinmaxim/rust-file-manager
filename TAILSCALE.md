@@ -73,7 +73,7 @@ Cloudflare на публичный IP.
   недоступную self-hosted контрол-серверу.
 
 - **Отдельный поддомен для tailnet** — создать в Cloudflare запись
-  `example.com → 100.x.y.z` (приватный IP в публичном DNS — это
+  `files-ts.example.com → 100.x.y.z` (приватный IP в публичном DNS — это
   допустимо) и выписать сертификат через DNS-01 challenge, потому что
   HTTP-01 до приватного адреса не достучится:
 
@@ -82,7 +82,7 @@ Cloudflare на публичный IP.
   # ~/.secrets/cloudflare.ini: dns_cloudflare_api_token = <токен с правом DNS:Edit>
   sudo certbot certonly --dns-cloudflare \
       --dns-cloudflare-credentials ~/.secrets/cloudflare.ini \
-      -d example.com
+      -d files-ts.example.com
   ```
 
   Плюс второй `server`-блок в nginx с этим именем и сертификатом. Работает,
