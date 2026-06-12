@@ -6,6 +6,7 @@ use base64::Engine;
 
 const DEFAULT_BIND_ADDR: &str = "127.0.0.1:8080";
 const DEFAULT_UPLOAD_DIR: &str = "uploads";
+const DEFAULT_USERS_FILE: &str = "users.json";
 const DEFAULT_MAX_FILE_SIZE_MB: usize = 200;
 
 /// Runtime configuration, loaded from environment variables (and `.env` if present).
@@ -13,6 +14,7 @@ const DEFAULT_MAX_FILE_SIZE_MB: usize = 200;
 pub struct AppConfig {
     pub bind_addr: String,
     pub upload_dir: PathBuf,
+    pub users_file: PathBuf,
     pub max_file_size: usize,
     pub admin_username: String,
     pub admin_password_hash: String,
@@ -51,6 +53,9 @@ impl AppConfig {
             bind_addr: env::var("BIND_ADDR").unwrap_or_else(|_| DEFAULT_BIND_ADDR.to_string()),
             upload_dir: PathBuf::from(
                 env::var("UPLOAD_DIR").unwrap_or_else(|_| DEFAULT_UPLOAD_DIR.to_string()),
+            ),
+            users_file: PathBuf::from(
+                env::var("USERS_FILE").unwrap_or_else(|_| DEFAULT_USERS_FILE.to_string()),
             ),
             max_file_size: max_file_size_mb * 1024 * 1024,
             admin_username: env::var("ADMIN_USERNAME").unwrap_or_else(|_| "admin".to_string()),
