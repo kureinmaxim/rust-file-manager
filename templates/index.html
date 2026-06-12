@@ -171,6 +171,12 @@
                     <option value="my">🔒 В мои файлы</option>
                     <option value="shared">👥 В общие файлы</option>
                 </select>
+                <select id="categorySelect" title="Категория">
+                    <option value="">Категория: автоматически</option>
+                    <option value="Серверы">💾 Бэкапы — Серверы</option>
+                    <option value="HA">💾 Бэкапы — HA</option>
+                    <option value="Project">💾 Бэкапы — Project</option>
+                </select>
                 <button type="submit" id="uploadBtn">Загрузить</button>
             </div>
         </form>
@@ -205,7 +211,7 @@
     <h2 class="zone-title">{{this.icon}} {{this.title}} <span class="meta">{{this.total_size}}</span></h2>
     {{#each this.categories}}
     <div class="card category">
-        <h2>{{this.category}}</h2>
+        <h2>{{this.title}}</h2>
         <ul class="files">
             {{#each this.files}}
             <li>
@@ -249,12 +255,14 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
     const fileInput = document.getElementById('fileInput');
     const button = document.getElementById('uploadBtn');
     const zone = document.getElementById('zoneSelect').value;
+    const category = document.getElementById('categorySelect').value;
     if (!fileInput.files.length) return;
 
     button.disabled = true;
     showStatus('Загрузка…', true);
     try {
-        const data = await apiCall(`/upload/${zone}`, { method: 'POST', body: new FormData(e.target) });
+        const url = `/upload/${zone}` + (category ? `?category=${encodeURIComponent(category)}` : '');
+        const data = await apiCall(url, { method: 'POST', body: new FormData(e.target) });
         showStatus(data.message, data.success);
         if (data.success) setTimeout(() => location.reload(), 800);
     } catch (err) {

@@ -7,6 +7,12 @@ pub const FILE_CATEGORIES: &[(&str, &[&str])] = &[
     ("Другие", &[]),
 ];
 
+/// Backup section: fixed folders under one parent directory. Files land here
+/// only when the user picks the folder explicitly at upload time — backups
+/// cannot be told apart from regular files by extension.
+pub const BACKUP_PARENT: &str = "Бэкапы";
+pub const BACKUP_FOLDERS: &[&str] = &["Серверы", "HA", "Project"];
+
 pub fn category_for_extension(extension: &str) -> &'static str {
     let extension = extension.to_lowercase();
     FILE_CATEGORIES
@@ -16,8 +22,22 @@ pub fn category_for_extension(extension: &str) -> &'static str {
         .unwrap_or("Другие")
 }
 
+/// Map a category id from a URL to its directory relative to the zone root.
+/// Backup folders live under `Бэкапы/`; unknown ids are rejected, which is
+/// what keeps category segments path-traversal-safe.
+pub fn category_rel_dir(category: &str) -> Option<String> {
+    if FILE_CATEGORIES.iter().any(|(c, _)| *c == category) {
+        return Some(category.to_string());
+    }
+    if BACKUP_FOLDERS.contains(&category) {
+        return Some(format!("{BACKUP_PARENT}/{category}"));
+    }
+    None
+}
+
+#[cfg(test)]
 pub fn is_valid_category(category: &str) -> bool {
-    FILE_CATEGORIES.iter().any(|(c, _)| *c == category)
+    category_rel_dir(category).is_some()
 }
 
 /// Reduce an untrusted file name to a safe final path component.
@@ -62,6 +82,17 @@ mod tests {
     #[test]
     fn category_validation() {
         assert!(is_valid_category("Фото"));
+        assert!(is_valid_category("Серверы"));
+        assert!(is_valid_category("HA"));
+        assert!(is_valid_category("Project"));
+        assert!(!is_valid_category("Бэкапы"));
         assert!(!is_valid_category("../секрет"));
+    }
+
+    #[test]
+    fn backup_folders_map_under_parent() {
+        assert_eq!(category_rel_dir("Серверы").as_deref(), Some("Бэкапы/Серверы"));
+        assert_eq!(category_rel_dir("Фото").as_deref(), Some("Фото"));
+        assert_eq!(category_rel_dir("nope"), None);
     }
 }

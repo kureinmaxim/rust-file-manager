@@ -12,7 +12,10 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::auth::{current_user, CurrentUser};
-use crate::categories::{category_for_extension, is_valid_category, sanitize_file_name, FILE_CATEGORIES};
+use crate::categories::{
+    category_for_extension, category_rel_dir, sanitize_file_name, BACKUP_FOLDERS, BACKUP_PARENT,
+    FILE_CATEGORIES,
+};
 use crate::config::AppConfig;
 
 pub const SHARED_DIR: &str = "shared";
@@ -21,6 +24,7 @@ pub const HOME_DIR: &str = "home";
 #[derive(Serialize)]
 struct CategoryFiles {
     category: String,
+    title: String,
     files: Vec<String>,
 }
 
@@ -109,17 +113,30 @@ fn safe_path(
     file_name: &str,
 ) -> Result<PathBuf, HttpResponse> {
     let root = zone_root(config, scope, user)?;
-    if !is_valid_category(category) {
-        return Err(bad_request("Недопустимая категория"));
-    }
+    let rel_dir = category_rel_dir(category).ok_or_else(|| bad_request("Недопустимая категория"))?;
     let name = sanitize_file_name(file_name).ok_or_else(|| bad_request("Недопустимое имя файла"))?;
-    Ok(root.join(category).join(name))
+    Ok(root.join(rel_dir).join(name))
+}
+
+/// Category ids paired with their UI titles: regular categories first, then
+/// the backup folders shown as «Бэкапы — <folder>».
+fn category_listing() -> Vec<(String, String)> {
+    FILE_CATEGORIES
+        .iter()
+        .map(|(c, _)| (c.to_string(), c.to_string()))
+        .chain(
+            BACKUP_FOLDERS
+                .iter()
+                .map(|f| (f.to_string(), format!("💾 {BACKUP_PARENT} — {f}"))),
+        )
+        .collect()
 }
 
 fn list_zone(root: &Path) -> Vec<CategoryFiles> {
     let mut categories = Vec::new();
-    for (category, _) in FILE_CATEGORIES {
-        let dir = root.join(category);
+    for (category, title) in category_listing() {
+        let rel_dir = category_rel_dir(&category).expect("listing only yields valid categories");
+        let dir = root.join(rel_dir);
         let Ok(entries) = fs::read_dir(&dir) else { continue };
 
         let mut files: Vec<String> = entries
@@ -130,7 +147,7 @@ fn list_zone(root: &Path) -> Vec<CategoryFiles> {
         files.sort();
 
         if !files.is_empty() {
-            categories.push(CategoryFiles { category: category.to_string(), files });
+            categories.push(CategoryFiles { category, title, files });
         }
     }
     categories
@@ -222,9 +239,17 @@ pub async fn download(
         .into_response(&req))
 }
 
+#[derive(serde::Deserialize)]
+pub struct UploadQuery {
+    /// Explicit target category (e.g. a backup folder). When absent the
+    /// category is derived from the file extension.
+    category: Option<String>,
+}
+
 #[post("/upload/{scope}")]
 pub async fn upload(
     scope: web::Path<String>,
+    query: web::Query<UploadQuery>,
     mut payload: Multipart,
     session: Session,
     config: web::Data<AppConfig>,
@@ -235,6 +260,13 @@ pub async fn upload(
     let root = match zone_root(&config, &scope, &user) {
         Ok(r) => r,
         Err(resp) => return Ok(resp),
+    };
+    let forced_category = match query.category.as_deref().filter(|c| !c.is_empty()) {
+        Some(c) => match category_rel_dir(c) {
+            Some(_) => Some(c.to_string()),
+            None => return Ok(bad_request("Недопустимая категория")),
+        },
+        None => None,
     };
 
     let mut message = String::from("Файл не получен");
@@ -255,8 +287,12 @@ pub async fn upload(
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("");
-        let category = category_for_extension(extension);
-        let category_dir = root.join(category);
+        let category = match &forced_category {
+            Some(c) => c.clone(),
+            None => category_for_extension(extension).to_string(),
+        };
+        let rel_dir = category_rel_dir(&category).expect("category validated above");
+        let category_dir = root.join(rel_dir);
         fs::create_dir_all(&category_dir)?;
 
         // Avoid overwriting: append (1), (2), ... until the name is free.
@@ -293,7 +329,7 @@ pub async fn upload(
         }
 
         let saved_name = target.file_name().and_then(|n| n.to_str()).unwrap_or("?");
-        tracing::info!(user = %user.username, scope = %scope.as_str(), category, file = saved_name, size, "file uploaded");
+        tracing::info!(user = %user.username, scope = %scope.as_str(), category = %category, file = saved_name, size, "file uploaded");
         message = format!("Файл загружен в категорию «{category}»: {saved_name}");
     }
 
