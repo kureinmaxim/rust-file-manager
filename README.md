@@ -130,7 +130,7 @@ RUST_LOG=info
 
 ## Деплой на VPS
 
-Полная пошаговая инструкция (systemd + nginx + HTTPS + Cloudflare + многопользовательский режим) — в [DEPLOY.md](DEPLOY.md).
+Полная пошаговая инструкция (systemd + nginx + HTTPS + Cloudflare + многопользовательский режим) — в [DEPLOY.md](DEPLOY.md). Доступ через сеть Tailscale/Headscale — в [TAILSCALE.md](TAILSCALE.md).
 
 Примеры конфигов лежат в [`deploy/`](deploy/):
 
