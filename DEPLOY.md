@@ -231,9 +231,14 @@ uploads/
 
 ## Обновление приложения
 
+Коротко:
+
 ```bash
 cd ~/rust-file-manager && git pull
 cargo build --release
 sudo cp target/release/rust-file-manager /usr/local/bin/
 sudo systemctl restart rust-file-manager
 ```
+
+Полный runbook с проверками версий, бэкапом бинарника, откатом и разбором
+частных случаев — [POST_DEPLOY.md](POST_DEPLOY.md).
