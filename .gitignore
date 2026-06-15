@@ -17,3 +17,4 @@
 .vscode/
 *.log
 debug_log.txt
+rust-file-manager.code-workspace
