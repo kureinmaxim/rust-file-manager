@@ -29,7 +29,9 @@ df -h / /var/tmp /usr/local/bin
 копируя секреты в чат или репозиторий.
 
 Для стандартной раскладки из DEPLOY.md задайте переменные ниже. Замените
-пути, адрес и имя службы на подтверждённые значения своей установки:
+пути, адрес и имя службы на подтверждённые значения своей установки.
+Вместо `EXPECTED_FULL_COMMIT_SHA` укажите полный коммит тега из доверенного
+репозитория перед выполнением команд:
 
 ```bash
 RFM_UNIT=rust-file-manager.service
@@ -39,7 +41,7 @@ RFM_ENV=/etc/rust-file-manager/env
 RFM_LOCAL_URL=http://127.0.0.1:8080/login
 RFM_PUBLIC_URL=https://files.example.com/login
 RFM_RELEASE=v1.3.0
-RFM_COMMIT=be3cbd70b8177de0ddcaec3760de25452ac76a1b
+RFM_COMMIT=EXPECTED_FULL_COMMIT_SHA
 sudo test -f "$RFM_BIN" && sudo test ! -L "$RFM_BIN" &&
 sudo test -d "$RFM_DATA" && sudo test -f "$RFM_ENV" &&
 sudo systemctl is-active "$RFM_UNIT"
@@ -48,16 +50,10 @@ sudo systemctl is-active "$RFM_UNIT"
 Проверка рассчитана на обычный файл бинарника. Если `ExecStart` использует
 симлинк на каталог релизов, сохраните и обновляйте именно эту схему.
 
-Для `files.example.com` по выводу терминала подтверждены Linux x86_64,
-Rust/Cargo 1.96.0 и активная systemd-служба `rust-file-manager.service` от
-`filemgr`, с рабочим каталогом `/var/lib/rust-file-manager` и юнитом
-`/etc/systemd/system/rust-file-manager.service`. Также подтверждён HTTP 200
-страницы входа через Cloudflare. На VPS около 2 GiB RAM и 2 GiB swap;
-используйте одно задание сборки. Подтверждены бинарник
-`/usr/local/bin/rust-file-manager` и env `/etc/rust-file-manager/env`.
-Размещение uploads/`users.json`, порт SSH и установленная версия процесса
-пока не подтверждены: строки запуска в присланном выводе нет. Версию узнавайте из журнала и футера: CLI-команда
-`rust-file-manager --version` не реализована.
+Примеры рассчитаны на типовой юнит из проекта. Значения домена, IP,
+объёма памяти и версию работающей машины определяйте на своём VPS локально;
+эти сведения не фиксируются в публичном репозитории. CLI-команда
+`rust-file-manager --version` не реализована: используйте журнал и футер.
 
 ## 1. Выбрать выпуск и собрать отдельно
 
@@ -189,7 +185,7 @@ curl --fail --silent --show-error --max-time 20 \
   -o /dev/null -w '%{http_code}\n' "$RFM_PUBLIC_URL"
 ```
 
-Ожидаются `active`, строка `version="1.3.0" commit="be3cbd7"` без `-dirty`
+Ожидаются `active`, строка с `version="1.3.0"` и выбранным коммитом без `-dirty`
 и оба HTTP-ответа 200. Сравните время строки запуска с текущим рестартом:
 старая успешная запись не подтверждает запуск новой версии.
 

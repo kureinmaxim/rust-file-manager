@@ -31,6 +31,9 @@ tailnet идёт напрямую по WireGuard.
 tailscale ip -4    # например TAILNET_IP
 ```
 
+В примерах `TAILNET_IP` — обозначение адреса из предыдущей команды.
+Подставьте его локально; не коммитьте реальный адрес узла.
+
 ### 2. Добавить override в конфиг Headscale
 
 В `/etc/headscale/config.yaml` (на машине, где работает Headscale):

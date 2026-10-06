@@ -3,10 +3,12 @@
 
 # Secrets — never commit
 .env
+.env.*
+!.env.example
 
 # User data
 /uploads/
-/users.json
+/users.json*
 
 # Local-only files (private configs, legacy code, personal data)
 /_local/
@@ -18,3 +20,10 @@
 *.log
 debug_log.txt
 rust-file-manager.code-workspace
+
+# Private credentials and certificates
+/secrets/
+*.pem
+*.key
+*.p12
+*.pfx
