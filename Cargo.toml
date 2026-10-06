@@ -3,17 +3,17 @@ members = ["xtask"]
 
 [package]
 name = "rust-file-manager"
-version = "1.2.0"
+version = "1.3.0"
 edition = "2021"
 description = "Self-hosted file manager: upload, categorize, rename and delete files via a web UI"
 license = "MIT"
 repository = "https://github.com/kureinmaxim/rust-file-manager"
-rust-version = "1.75"
+rust-version = "1.88"
 build = "build.rs"
 
 # Release date, kept in sync by `cargo xtask` (see VERSION_MANAGEMENT.md)
 [package.metadata.release]
-date = "12.06.2026"
+date = "06.10.2026"
 
 [dependencies]
 actix-web = "4"

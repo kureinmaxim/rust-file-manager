@@ -58,22 +58,45 @@
             font-size: 14px;
             text-align: center;
         }
+
+        * { box-sizing: border-box; }
+        body { padding: 24px 16px; min-height: 100vh; min-height: 100svh; background: #f5f7fa; }
+        .login-card, .card { width: 100%; max-width: 400px; border-color: #dce4eb; box-shadow: 0 12px 40px #172b3a08; }
+        input { font-size: 16px; min-height: 46px; color: #172b3a; }
+        input:focus { outline: 3px solid #087f7526; border-color: #087f75; }
+        button { background: #087f75; min-height: 46px; font-size: 16px; }
+        :focus-visible { outline: 3px solid #54b9ae; outline-offset: 3px; }
+        .password-field { position: relative; }
+        .password-field input { padding-right: 72px; }
+        button.password-toggle { position: absolute; right: 5px; top: 3px; width: auto; margin: 0; padding: 5px 8px; min-height: 40px; font-size: 12px; color: #087f75; background: transparent; }
+        .intro { text-align: center; color: #617384; font-size: 13px; margin: -8px 0 22px; }
+        .login-card h1 { color: #172b3a; }
+        .hint, label { color: #617384; }
+        @media (max-width: 420px) { .login-card, .card { padding: 26px 22px; } }
     </style>
 </head>
 <body>
 <form class="login-card" id="registerForm">
-    <h1>📁 Создание аккаунта</h1>
+    <h1>Создание аккаунта</h1>
     <p class="hint">Вас пригласили в файловый менеджер. Придумайте имя и пароль — у вас будет личная папка и доступ к общим файлам.</p>
     <label for="username">Имя пользователя</label>
-    <input type="text" id="username" name="username" autocomplete="username"
+    <input type="text" id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false"
            pattern="[A-Za-z0-9_\-]{3,32}" title="3–32 символа: латинские буквы, цифры, «_» и «-»" required>
     <label for="password">Пароль (минимум 8 символов)</label>
-    <input type="password" id="password" name="password" autocomplete="new-password" minlength="8" required>
+    <div class="password-field"><input type="password" id="password" name="password" autocomplete="new-password" minlength="8" required><button class="password-toggle" type="button" id="passwordToggle" aria-controls="password" aria-pressed="false">Показать</button></div>
     <button type="submit" id="submitBtn">Создать аккаунт</button>
-    <div class="error" id="error"></div>
+    <div class="error" id="error" role="alert"></div>
 </form>
 
 <script>
+document.getElementById('passwordToggle').addEventListener('click', () => {
+    const input = document.getElementById('password');
+    const button = document.getElementById('passwordToggle');
+    const visible = input.type === 'password';
+    input.type = visible ? 'text' : 'password';
+    button.textContent = visible ? 'Скрыть' : 'Показать';
+    button.setAttribute('aria-pressed', String(visible));
+});
 document.getElementById('registerForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const button = document.getElementById('submitBtn');

@@ -3,354 +3,546 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Файловый менеджер</title>
+    <meta name="color-scheme" content="light">
+    <title>Файлы — Файловый менеджер</title>
     <style>
-        :root {
-            --bg: #f5f6f8;
-            --card: #ffffff;
-            --text: #1f2933;
-            --muted: #6b7280;
-            --accent: #2563eb;
-            --accent-soft: #e8f0fe;
-            --success-bg: #dcfce7;
-            --success-text: #166534;
-            --error-bg: #fee2e2;
-            --error-text: #991b1b;
-            --border: #e5e7eb;
+        :root { --bg:#f5f7fa; --card:#fff; --text:#172b3a; --muted:#617384; --accent:#087f75; --soft:#e8f5f2; --border:#dce4eb; --danger:#b42335; --error:#fff0f1; }
+        * { box-sizing:border-box; }
+        [hidden] { display:none !important; }
+        body { margin:0; font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); }
+        button,input,select { font:inherit; }
+        button,a,input,select,summary { -webkit-tap-highlight-color:transparent; }
+        button { cursor:pointer; }
+        button:disabled { opacity:.55; cursor:wait; }
+        :focus-visible { outline:3px solid #54b9ae; outline-offset:3px; }
+        a { color:var(--accent); }
+        .icon { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+        .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+        .skip-link { position:fixed; top:8px; left:8px; z-index:10; padding:12px; background:white; transform:translateY(-160%); }
+        .skip-link:focus { transform:none; }
+        .layout { display:grid; grid-template-columns:232px minmax(0,1fr); min-height:100vh; }
+        .sidebar { background:#142c3b; color:#d0dce5; padding:28px 20px; display:flex; flex-direction:column; gap:28px; position:sticky; top:0; height:100vh; }
+        .brand { display:flex; align-items:center; gap:11px; color:white; font-weight:700; font-size:17px; }
+        .brand-mark { display:grid; place-items:center; width:38px; height:38px; border-radius:11px; background:#087f75; }
+        .nav-label { margin:0 12px 10px; color:#99b0c0; font-size:11px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; }
+        .zone-nav { display:grid; gap:6px; }
+        .zone-button { display:flex; gap:12px; align-items:center; width:100%; min-height:46px; border:0; border-radius:9px; padding:10px 12px; text-align:left; background:transparent; color:inherit; }
+        .zone-button:hover { background:#203d4e; }
+        .zone-button[aria-pressed=true] { background:#245049; color:#e6fff7; }
+        .sidebar-note { margin-top:auto; padding:16px 12px 0; border-top:1px solid #34505f; font-size:12px; color:#a8becc; }
+        .sidebar-note strong { display:block; font-size:13px; color:#e4edf4; margin-bottom:5px; }
+        .main { min-width:0; max-width:1320px; width:100%; margin:0 auto; padding:30px 38px; }
+        .topbar { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:27px; }
+        .eyebrow { color:var(--muted); font-size:12px; margin:0 0 5px; }
+        h1 { margin:0; font-size:30px; line-height:1.25; letter-spacing:-.8px; }
+        .account { display:flex; align-items:center; gap:12px; min-width:0; }
+        .account-name { font-weight:600; overflow-wrap:anywhere; }
+        .account-role { display:block; font-size:11px; font-weight:400; color:var(--muted); }
+        .avatar { display:grid; place-items:center; width:36px; height:36px; border-radius:50%; background:#e4eeef; color:var(--accent); }
+        .button { display:inline-flex; justify-content:center; align-items:center; gap:7px; min-height:44px; padding:9px 15px; border:1px solid var(--border); border-radius:9px; background:white; color:var(--text); text-decoration:none; font-weight:600; font-size:13px; }
+        .button:hover { background:#f0f4f7; }
+        .button.primary { background:var(--accent); color:white; border-color:var(--accent); }
+        .button.primary:hover { background:#056d65; }
+        .button.danger { color:var(--danger); background:var(--error); border-color:#f4cdd3; }
+        .button.compact { padding:7px 11px; font-weight:500; }
+        .panel { border:1px solid var(--border); background:var(--card); border-radius:14px; box-shadow:0 3px 10px #172b3a03; }
+        .upload-panel { padding:22px; margin-bottom:26px; }
+        .panel-heading { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:6px 16px; margin-bottom:16px; }
+        h2,h3,p { overflow-wrap:anywhere; }
+        .panel-heading h2 { margin:0; font-size:16px; }
+        .muted { color:var(--muted); font-size:12px; }
+        .dropzone { position:relative; display:flex; align-items:center; justify-content:center; gap:16px; min-height:100px; padding:20px; border:1px dashed #9dbdb9; border-radius:10px; background:#f6fbfa; cursor:pointer; }
+        .dropzone:hover,.dropzone.dragover { border-color:var(--accent); background:var(--soft); }
+        .dropzone:focus-within { outline:3px solid #54b9ae; outline-offset:3px; }
+        .dropzone .upload-icon { display:grid; place-items:center; width:42px; height:42px; border-radius:11px; color:var(--accent); background:#e4f2ef; }
+        .dropzone strong { display:block; font-size:14px; font-weight:600; }
+        .dropzone .choose { margin-left:auto; white-space:nowrap; color:var(--accent); }
+        .upload-settings { display:flex; gap:12px; align-items:flex-end; margin-top:16px; }
+        .field { display:grid; gap:5px; min-width:0; }
+        .field label { font-size:12px; color:var(--muted); }
+        select,input[type=search],input[type=text] { min-height:44px; width:100%; border:1px solid var(--border); border-radius:9px; background:white; color:var(--text); padding:9px 12px; }
+        .upload-settings .field { flex:1; }
+        .upload-settings .button { margin-left:auto; }
+        .queue { list-style:none; padding:0; margin:14px 0 0; }
+        .queue li { display:flex; justify-content:space-between; gap:12px; font-size:12px; padding:8px 0; border-top:1px solid #edf1f5; }
+        .queue-name { overflow-wrap:anywhere; min-width:0; }
+        .queue-state { flex-shrink:0; color:var(--muted); }
+        .queue-state.error { color:var(--danger); }
+        .queue-state.success { color:var(--accent); }
+        .upload-progress { margin-top:14px; }
+        .progress-label { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); gap:12px; }
+        progress { display:block; width:100%; height:7px; border:0; border-radius:10px; overflow:hidden; accent-color:var(--accent); margin-top:7px; }
+        progress::-webkit-progress-bar { background:#e3ebe9; }
+        progress::-webkit-progress-value { background:var(--accent); }
+        .file-toolbar { display:flex; gap:12px; align-items:end; margin-bottom:16px; }
+        .search { position:relative; flex:1; min-width:0; }
+        .search .icon { position:absolute; left:12px; top:12px; color:var(--muted); }
+        .search input { padding-left:40px; }
+        .sort { max-width:200px; }
+        .results-info { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:18px; font-size:12px; color:var(--muted); }
+        .text-button { min-height:44px; border:0; background:transparent; color:var(--accent); padding:4px 0; font-size:12px; text-decoration:underline; }
+        .zone-title { display:flex; justify-content:space-between; gap:12px; align-items:center; margin:24px 0 12px; }
+        .zone-title h2 { display:flex; align-items:center; gap:8px; margin:0; font-size:17px; }
+        .zone-size { font-size:12px; color:var(--muted); white-space:nowrap; }
+        .category { margin-bottom:12px; overflow:hidden; }
+        .category summary { display:flex; align-items:center; gap:10px; padding:14px 18px; cursor:pointer; min-height:50px; font-size:13px; font-weight:600; list-style:none; background:#fbfcfd; }
+        .category summary::-webkit-details-marker { display:none; }
+        .category summary .chevron { margin-left:auto; width:16px; transition:transform .15s; }
+        .category[open] summary .chevron { transform:rotate(90deg); }
+        .count { color:var(--muted); font-size:11px; font-weight:400; padding:2px 7px; border:1px solid var(--border); border-radius:20px; }
+        .files { list-style:none; padding:0; margin:0; }
+        .file-row { display:flex; align-items:center; gap:12px; padding:15px 18px; border-top:1px solid #edf1f5; }
+        .file-row:hover { background:#fcfdfd; }
+        .file-icon { display:grid; place-items:center; width:38px; height:42px; flex-shrink:0; border-radius:8px; background:#eef3fb; color:#4e72a1; font-size:9px; font-weight:700; letter-spacing:.3px; }
+        .file-content { flex:1; min-width:0; }
+        .file-link { display:block; color:var(--text); text-decoration:none; font-size:14px; font-weight:500; overflow-wrap:anywhere; }
+        .file-link:hover { color:var(--accent); text-decoration:underline; }
+        .file-meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:3px; color:var(--muted); font-size:11px; }
+        .file-actions { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+        .file-actions .icon-button { width:44px; height:44px; display:grid; place-items:center; background:transparent; border:1px solid transparent; border-radius:8px; color:var(--muted); text-decoration:none; }
+        .file-actions .icon-button:hover { background:var(--soft); color:var(--accent); }
+        .file-actions .icon-button.danger:hover { background:var(--error); color:var(--danger); }
+        .empty { padding:35px 20px; text-align:center; }
+        .empty .icon { width:30px; height:30px; color:#9ab0bc; }
+        .empty h3 { margin:9px 0 4px; font-size:15px; }
+        .empty p { margin:0; font-size:13px; color:var(--muted); }
+        .admin { margin-top:26px; padding:0 20px; }
+        .admin summary { padding:17px 0; cursor:pointer; font-size:13px; font-weight:600; }
+        .admin-body { padding:0 0 18px; }
+        .invite-row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+        .invite-link { display:flex; gap:8px; align-items:center; padding:12px; background:var(--soft); border-radius:9px; margin-top:12px; }
+        .invite-link input { min-width:0; flex:1; font-size:12px; }
+        .users-list { list-style:none; padding:0; margin:12px 0 0; }
+        .users-list li { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 0; border-top:1px solid var(--border); }
+        .users-list .name { min-width:0; overflow-wrap:anywhere; font-size:13px; }
+        .app-footer { margin:24px 0 0; color:var(--muted); font-size:11px; }
+        .status { position:fixed; z-index:20; right:22px; bottom:22px; width:min(440px,calc(100% - 32px)); display:flex; align-items:flex-start; gap:12px; padding:15px 16px; border:1px solid #afd6cc; border-radius:12px; background:#f1fbf6; color:#185c46; box-shadow:0 8px 30px #172b3a20; font-size:13px; }
+        .status.error { background:var(--error); border-color:#f1bec6; color:var(--danger); }
+        #statusMessage { flex:1; min-width:0; overflow-wrap:anywhere; }
+        .status button { background:transparent; border:0; color:inherit; min-width:44px; min-height:44px; margin:-10px -4px -10px 0; }
+        dialog { width:min(440px,calc(100% - 32px)); border:1px solid var(--border); border-radius:16px; padding:24px; color:var(--text); box-shadow:0 20px 80px #172b3a30; }
+        dialog::backdrop { background:#142c3b70; }
+        dialog h2 { font-size:20px; margin:0 0 10px; }
+        dialog p { color:var(--muted); font-size:14px; margin:0 0 18px; }
+        .dialog-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:22px; }
+        .dialog-error { color:var(--danger); font-size:13px; margin-top:10px; overflow-wrap:anywhere; }
+        @media (max-width:1000px) {
+            .layout { display:block; }
+            .sidebar { position:static; height:auto; padding:16px 24px; gap:16px; }
+            .brand { font-size:15px; }
+            .brand-mark { width:30px; height:30px; border-radius:8px; }
+            .nav-label,.sidebar-note { display:none; }
+            .zone-nav { display:flex; gap:8px; }
+            .zone-button { width:auto; font-size:13px; min-height:44px; padding:9px 14px; }
+            .main { padding:25px 24px; }
         }
-        * { box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            margin: 0;
-            background: var(--bg);
-            color: var(--text);
+        @media (max-width:600px) {
+            .sidebar { padding:14px 16px; }
+            .zone-nav { gap:4px; }
+            .zone-button { flex:1; padding:8px 7px; justify-content:center; gap:5px; font-size:12px; white-space:nowrap; }
+            .zone-button .icon { width:16px; height:16px; }
+            .main { padding:22px 16px; }
+            .topbar { align-items:flex-start; margin-bottom:20px; }
+            h1 { font-size:26px; }
+            .eyebrow { max-width:165px; }
+            .avatar { display:none; }
+            .account { gap:7px; flex-wrap:wrap; justify-content:flex-end; max-width:145px; }
+            .account-name { font-size:12px; text-align:right; }
+            #logoutBtn { padding:7px 10px; min-height:44px; font-size:12px; }
+            .upload-panel { padding:16px; margin-bottom:22px; }
+            .dropzone { flex-wrap:wrap; padding:18px 12px; gap:10px; text-align:center; }
+            .dropzone .upload-icon { display:none; }
+            .dropzone .choose { margin:2px 0 0; width:100%; }
+            .upload-settings { display:grid; grid-template-columns:1fr; gap:12px; }
+            .upload-settings .button { width:100%; margin:0; }
+            .file-toolbar { flex-wrap:wrap; }
+            .search { flex-basis:100%; }
+            .sort { width:100%; max-width:none; }
+            .file-row { padding:12px 14px; flex-wrap:wrap; gap:10px; }
+            .file-icon { width:32px; height:38px; }
+            .file-actions { width:100%; justify-content:flex-end; padding-top:4px; border-top:1px solid #edf1f5; gap:8px; }
+            .file-actions .icon-button { background:#f4f7f9; }
+            .category summary { padding:13px 14px; }
+            .invite-link { flex-wrap:wrap; }
+            .invite-link input { flex-basis:100%; }
+            .status { bottom:16px; right:16px; }
+            .queue li { align-items:flex-start; }
+            .queue-state { max-width:42%; text-align:right; flex-shrink:1; }
         }
-        .container { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        header h1 { font-size: 22px; margin: 0; }
-        .who { color: var(--muted); font-size: 13px; }
-        .logout-btn {
-            background: none;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 6px 14px;
-            cursor: pointer;
-            color: var(--muted);
-            font-size: 13px;
-        }
-        .logout-btn:hover { color: var(--text); border-color: var(--muted); }
-        .card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 18px 20px;
-            margin-bottom: 16px;
-        }
-        .meta { color: var(--muted); font-size: 13px; margin: 4px 0; }
-        .upload-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-        .upload-form input[type=file] { flex: 1; min-width: 220px; font-size: 14px; }
-        .upload-form select {
-            padding: 8px 10px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            font-size: 14px;
-            background: #fff;
-        }
-        .upload-form button {
-            background: var(--accent);
-            color: #fff;
-            border: none;
-            border-radius: 8px;
-            padding: 9px 18px;
-            font-size: 14px;
-            cursor: pointer;
-        }
-        .upload-form button:disabled { opacity: .6; cursor: wait; }
-        .status { margin: 12px 0 0; padding: 10px 14px; border-radius: 8px; font-size: 14px; display: none; word-break: break-all; }
-        .status.success { display: block; background: var(--success-bg); color: var(--success-text); }
-        .status.error { display: block; background: var(--error-bg); color: var(--error-text); }
-        .zone-title {
-            font-size: 18px;
-            margin: 26px 0 12px;
-            display: flex;
-            align-items: baseline;
-            gap: 10px;
-        }
-        .zone-title .meta { font-weight: normal; }
-        .category h2 {
-            font-size: 16px;
-            margin: 0 0 10px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid var(--border);
-        }
-        ul.files { list-style: none; margin: 0; padding: 0; }
-        ul.files li {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 7px 4px;
-            border-bottom: 1px dashed var(--border);
-            font-size: 14px;
-        }
-        ul.files li:last-child { border-bottom: none; }
-        a.file { color: var(--accent); text-decoration: none; flex: 1; word-break: break-all; }
-        a.file:hover { text-decoration: underline; }
-        .action {
-            border: none;
-            background: var(--accent-soft);
-            border-radius: 6px;
-            padding: 4px 10px;
-            font-size: 12px;
-            cursor: pointer;
-            color: var(--accent);
-        }
-        .action.danger { background: var(--error-bg); color: var(--error-text); }
-        .empty { color: var(--muted); font-style: italic; }
-        .users-list { list-style: none; margin: 10px 0 0; padding: 0; }
-        .users-list li {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 7px 4px;
-            border-bottom: 1px dashed var(--border);
-            font-size: 14px;
-        }
-        .users-list li:last-child { border-bottom: none; }
-        .users-list .name { flex: 1; }
-        .invite-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-        .invite-row button {
-            background: var(--accent);
-            color: #fff;
-            border: none;
-            border-radius: 8px;
-            padding: 9px 18px;
-            font-size: 14px;
-            cursor: pointer;
-        }
-        .invite-link {
-            display: none;
-            margin-top: 12px;
-            padding: 10px 14px;
-            border-radius: 8px;
-            background: var(--accent-soft);
-            font-size: 13px;
-            word-break: break-all;
-        }
-        .invite-link.visible { display: flex; gap: 10px; align-items: center; }
-        .invite-link code { flex: 1; }
-        .app-footer {
-            margin-top: 24px;
-            text-align: center;
-            color: var(--muted);
-            font-size: 12px;
-        }
+        @media (max-width:360px) { .zone-button { flex:1 1 0; min-width:0; padding:8px 5px; font-size:11px; white-space:normal; } .zone-button .icon { display:none; } }
+        @media (prefers-reduced-motion:reduce) { * { transition:none !important; scroll-behavior:auto !important; } }
     </style>
 </head>
 <body>
-<div class="container">
-    <header>
-        <h1>📁 Файловый менеджер</h1>
-        <div>
-            <span class="who">👤 {{username}}{{#if is_admin}} (админ){{/if}}</span>
-            <button class="logout-btn" id="logoutBtn">Выйти</button>
-        </div>
-    </header>
-
-    <div class="card">
-        <form id="uploadForm" enctype="multipart/form-data">
-            <div class="upload-form">
-                <input type="file" name="file" id="fileInput" required>
-                <select id="zoneSelect" title="Куда загрузить">
-                    <option value="my">🔒 В мои файлы</option>
-                    <option value="shared">👥 В общие файлы</option>
-                </select>
-                <select id="categorySelect" title="Категория">
-                    <option value="">Категория: автоматически</option>
-                    <option value="Серверы">💾 Бэкапы — Серверы</option>
-                    <option value="HA">💾 Бэкапы — HA</option>
-                    <option value="Project">💾 Бэкапы — Project</option>
-                </select>
-                <button type="submit" id="uploadBtn">Загрузить</button>
+<svg aria-hidden="true" style="display:none" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3Z"/></symbol>
+    <symbol id="lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></symbol>
+    <symbol id="users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2m1-15a3 3 0 0 1 0 6m2 3a5 5 0 0 1 3 4v2"/></symbol>
+    <symbol id="upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 16v5h16v-5"/></symbol>
+    <symbol id="search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></symbol>
+    <symbol id="download" viewBox="0 0 24 24"><path d="M12 3v13m-5-5 5 5 5-5M4 17v4h16v-4"/></symbol>
+    <symbol id="link" viewBox="0 0 24 24"><path d="m10 13 4-4m-5 7-2 2a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 1 2-2a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0"/></symbol>
+    <symbol id="edit" viewBox="0 0 24 24"><path d="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14Z"/></symbol>
+    <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18m-12 0V3h6v3M5 6l1 15h12l1-15M9 10v7m6-7v7"/></symbol>
+    <symbol id="chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+</svg>
+<a class="skip-link" href="#filesHeading">Перейти к файлам</a>
+<div class="layout">
+    <aside class="sidebar">
+        <div class="brand"><span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#folder"/></svg></span>Файловый менеджер</div>
+        <nav aria-label="Области хранения">
+            <p class="nav-label">Пространство</p>
+            <div class="zone-nav">
+                <button type="button" class="zone-button" data-zone="all" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="#folder"/></svg>Все файлы</button>
+                <button type="button" class="zone-button" data-zone="my" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#lock"/></svg>Мои файлы</button>
+                <button type="button" class="zone-button" data-zone="shared" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#users"/></svg>Общие файлы</button>
             </div>
-        </form>
-        <p class="meta">Максимальный размер файла: {{max_file_size}}</p>
-        <div id="status" class="status"></div>
-    </div>
-
-    {{#if is_admin}}
-    <div class="card">
-        <h2 style="font-size:16px; margin:0 0 12px;">⚙️ Пользователи</h2>
-        <div class="invite-row">
-            <button id="inviteBtn">Создать ссылку-приглашение</button>
-            <span class="meta">Ссылка одноразовая, действует 7 дней</span>
+        </nav>
+        <div class="sidebar-note"><strong>Ваше личное облако</strong>Личные файлы видны только вам. Общие доступны всем участникам.</div>
+    </aside>
+    <main class="main">
+        <header class="topbar">
+            <div><p class="eyebrow">Ваше файловое пространство</p><h1 id="filesHeading" tabindex="-1">Файлы</h1></div>
+            <div class="account">
+                <span class="avatar" aria-hidden="true"><svg class="icon"><use href="#users"/></svg></span>
+                <span class="account-name">{{username}}<span class="account-role">{{#if is_admin}}Администратор{{else}}Участник{{/if}}</span></span>
+                <button class="button" id="logoutBtn" type="button">Выйти</button>
+            </div>
+        </header>
+        <section class="panel upload-panel" aria-labelledby="uploadHeading">
+            <div class="panel-heading"><h2 id="uploadHeading">Добавить файлы</h2><span class="muted">До {{max_file_size}} на файл</span></div>
+            <form id="uploadForm" enctype="multipart/form-data" data-max-size="{{max_file_size_bytes}}">
+                <label class="dropzone" id="dropzone" for="fileInput">
+                    <span class="upload-icon"><svg class="icon" aria-hidden="true"><use href="#upload"/></svg></span>
+                    <span><strong>Выберите файлы или перетащите их сюда</strong><span class="muted">Можно загрузить несколько файлов за раз</span></span>
+                    <span class="button choose">Выбрать файлы</span>
+                    <input class="sr-only" type="file" name="file" id="fileInput" multiple aria-label="Выбрать файлы для загрузки">
+                </label>
+                <div class="upload-settings">
+                    <div class="field"><label for="zoneSelect">Куда загрузить</label><select id="zoneSelect"><option value="my">Мои файлы — только для меня</option><option value="shared">Общие файлы — для всех</option></select></div>
+                    <div class="field"><label for="categorySelect">Категория</label><select id="categorySelect"><option value="">Определить по типу файла</option><option value="Серверы">Бэкапы — Серверы</option><option value="HA">Бэкапы — HA</option><option value="Project">Бэкапы — Project</option></select></div>
+                    <button class="button primary" type="submit" id="uploadBtn"><svg class="icon" aria-hidden="true"><use href="#upload"/></svg><span>Загрузить</span></button>
+                </div>
+                <ul class="queue" id="uploadQueue" aria-label="Очередь загрузки"></ul>
+                <div class="upload-progress" id="uploadProgress" hidden>
+                    <div class="progress-label"><span id="progressLabel" role="status">Загрузка…</span><span id="progressPercent"></span></div>
+                    <progress id="progressBar" max="100" value="0" aria-label="Прогресс загрузки"></progress>
+                </div>
+            </form>
+        </section>
+        <div class="file-toolbar">
+            <div class="search"><label class="sr-only" for="searchInput">Поиск по имени файла</label><svg class="icon" aria-hidden="true"><use href="#search"/></svg><input type="search" id="searchInput" placeholder="Найти файл по имени…" autocomplete="off"></div>
+            <div class="field sort"><label class="sr-only" for="sortSelect">Сортировать файлы</label><select id="sortSelect"><option value="name">По имени: А → Я</option><option value="recent">Сначала новые</option><option value="size">Сначала большие</option></select></div>
         </div>
-        <div class="invite-link" id="inviteLink">
-            <code id="inviteUrl"></code>
-            <button class="action" id="copyInviteBtn">Копировать</button>
-        </div>
-        <ul class="users-list">
-            {{#each users}}
-            <li>
-                <span class="name">👤 {{this.username}}</span>
-                <button class="action danger" data-delete-user="{{this.username}}">Удалить</button>
-            </li>
+        <div class="results-info"><span id="resultsCount" role="status" aria-live="polite"></span><button class="text-button" type="button" id="resetFilters" hidden>Сбросить фильтры</button></div>
+        <section class="panel empty" id="noResults" hidden><svg class="icon" aria-hidden="true"><use href="#search"/></svg><h3>Ничего не найдено</h3><p>Измените имя или выберите другую область хранения.</p></section>
+        {{#each zones}}
+        <section class="zone" data-scope="{{this.scope}}" aria-label="{{this.title}}">
+            <div class="zone-title"><h2><svg class="icon" aria-hidden="true"><use href="{{#if @first}}#lock{{else}}#users{{/if}}"/></svg>{{this.title}}</h2><span class="zone-size">{{this.total_size}}</span></div>
+            {{#each this.categories}}
+            <details class="panel category" open>
+                <summary><svg class="icon" aria-hidden="true"><use href="#folder"/></svg>{{this.title}}<span class="count"></span><svg class="icon chevron" aria-hidden="true"><use href="#chevron"/></svg></summary>
+                <ul class="files">
+                    {{#each this.files}}
+                    <li class="file-row" data-name="{{this.name}}" data-size="{{this.size_bytes}}" data-modified="{{this.modified}}">
+                        <span class="file-icon" aria-hidden="true">FILE</span>
+                        <div class="file-content"><a class="file-link" href="{{this.url}}" download>{{this.name}}</a><div class="file-meta"><span>{{this.size}}</span><time data-timestamp="{{this.modified}}"></time></div></div>
+                        <div class="file-actions">
+                            <a class="icon-button" href="{{this.url}}" download title="Скачать" aria-label="Скачать {{this.name}}"><svg class="icon" aria-hidden="true"><use href="#download"/></svg></a>
+                            <button class="icon-button" type="button" data-copy data-scope="{{../../scope}}" data-category="{{../category}}" data-file="{{this.name}}" title="Копировать ссылку" aria-label="Копировать ссылку на {{this.name}}"><svg class="icon" aria-hidden="true"><use href="#link"/></svg></button>
+                            <button class="icon-button" type="button" data-rename data-scope="{{../../scope}}" data-category="{{../category}}" data-file="{{this.name}}" title="Переименовать" aria-label="Переименовать {{this.name}}"><svg class="icon" aria-hidden="true"><use href="#edit"/></svg></button>
+                            <button class="icon-button danger" type="button" data-delete data-scope="{{../../scope}}" data-category="{{../category}}" data-file="{{this.name}}" title="Удалить" aria-label="Удалить {{this.name}}"><svg class="icon" aria-hidden="true"><use href="#trash"/></svg></button>
+                        </div>
+                    </li>
+                    {{/each}}
+                </ul>
+            </details>
             {{/each}}
-        </ul>
-        {{#unless users}}<p class="empty">Пока нет других пользователей — создайте приглашение.</p>{{/unless}}
-    </div>
-    {{/if}}
-
-    {{#each zones}}
-    <h2 class="zone-title">{{this.icon}} {{this.title}} <span class="meta">{{this.total_size}}</span></h2>
-    {{#each this.categories}}
-    <div class="card category">
-        <h2>{{this.title}}</h2>
-        <ul class="files">
-            {{#each this.files}}
-            <li>
-                <a class="file" href="/uploads/{{../../scope}}/{{../category}}/{{this}}" target="_blank" rel="noopener">{{this}}</a>
-                <button class="action" data-rename data-scope="{{../../scope}}" data-category="{{../category}}" data-file="{{this}}">Переименовать</button>
-                <button class="action danger" data-delete data-scope="{{../../scope}}" data-category="{{../category}}" data-file="{{this}}">Удалить</button>
-            </li>
-            {{/each}}
-        </ul>
-    </div>
-    {{/each}}
-    {{#unless this.categories}}
-    <div class="card"><p class="empty">Файлов пока нет.</p></div>
-    {{/unless}}
-    {{/each}}
-
-    <footer class="app-footer">
-        rust-file-manager v{{version}} · коммит {{git_commit}} · сборка {{build_date}}
-    </footer>
+            {{#unless this.categories}}<div class="panel empty zone-empty"><svg class="icon" aria-hidden="true"><use href="#folder"/></svg><h3>Здесь пока нет файлов</h3><p>Выберите эту область в форме загрузки, чтобы добавить первый файл.</p></div>{{/unless}}
+        </section>
+        {{/each}}
+        {{#if is_admin}}
+        <details class="panel admin"><summary>Управление участниками</summary><div class="admin-body">
+            <div class="invite-row"><button class="button" type="button" id="inviteBtn">Создать приглашение</button><span class="muted">Для одной регистрации, действует 7 дней</span></div>
+            <div class="invite-link" id="inviteLink" hidden><label class="sr-only" for="inviteUrl">Ссылка-приглашение</label><input type="text" id="inviteUrl" readonly><button class="button compact" type="button" id="copyInviteBtn">Копировать</button></div>
+            <ul class="users-list">{{#each users}}<li><span class="name">{{this.username}}</span><button class="button compact danger" type="button" data-delete-user="{{this.username}}">Удалить участника</button></li>{{/each}}</ul>
+            {{#unless users}}<p class="muted">Других участников пока нет. Отправьте приглашение, чтобы поделиться общей папкой.</p>{{/unless}}
+        </div></details>
+        {{/if}}
+        <footer class="app-footer">Файловый менеджер · v{{version}}</footer>
+    </main>
 </div>
-
+<div class="status" id="status" hidden><span id="statusMessage" role="status" aria-live="polite"></span><button type="button" id="dismissStatus" aria-label="Закрыть уведомление">✕</button></div>
+<dialog id="actionDialog" aria-labelledby="dialogTitle" aria-describedby="dialogDescription">
+    <form id="dialogForm"><h2 id="dialogTitle"></h2><p id="dialogDescription"></p>
+        <div class="field" id="dialogField"><label for="dialogInput" id="dialogInputLabel">Новое имя</label><input type="text" id="dialogInput" autocomplete="off"></div>
+        <div class="dialog-error" id="dialogError" role="alert" hidden></div>
+        <div class="dialog-actions"><button class="button" type="button" id="dialogCancel">Отмена</button><button class="button primary" type="submit" id="dialogConfirm">Сохранить</button></div>
+    </form>
+</dialog>
+<noscript><p style="padding:20px;text-align:center">Для загрузки и управления файлами включите JavaScript. Ссылки на существующие файлы доступны без него.</p></noscript>
 <script>
-const statusBox = document.getElementById('status');
+'use strict';
+const $ = id => document.getElementById(id);
+const statusBox = $('status');
+const dialog = $('actionDialog');
+let dialogAction = null;
+let uploading = false;
+let queue = [];
+let activeZone = 'all';
 
-function showStatus(message, ok) {
-    statusBox.textContent = message;
-    statusBox.className = 'status ' + (ok ? 'success' : 'error');
+function showStatus(message, ok = true) {
+    $('statusMessage').textContent = message;
+    statusBox.classList.toggle('error', !ok);
+    statusBox.hidden = false;
 }
+$('dismissStatus').addEventListener('click', () => { statusBox.hidden = true; });
+function storeNotice(message) {
+    try { sessionStorage.setItem('rfm-notice', message); } catch { /* storage may be disabled */ }
+}
+function refresh(message) { storeNotice(message); location.reload(); }
+try {
+    const notice = sessionStorage.getItem('rfm-notice');
+    if (notice) { sessionStorage.removeItem('rfm-notice'); showStatus(notice); }
+} catch { /* all file operations work without browser storage */ }
+function unauthorized() { location.assign('/login'); return new Error('Требуется повторный вход'); }
+async function apiCall(url, options = {}) {
+    const response = await fetch(url, { ...options, headers: { Accept:'application/json', ...options.headers } });
+    if (response.status === 401) throw unauthorized();
+    let data;
+    try { data = await response.json(); } catch { throw new Error(`Сервер вернул ошибку (${response.status}). Повторите попытку.`); }
+    if (!response.ok || !data.success) throw new Error(data.message || `Ошибка сервера (${response.status})`);
+    return data;
+}
+function fileURL(scope, category, name) { return '/uploads/' + [scope,category,name].map(encodeURIComponent).join('/'); }
 
-async function apiCall(url, options) {
-    const response = await fetch(url, options);
-    if (response.status === 401) {
-        location.href = '/login';
-        throw new Error('unauthorized');
+function filterFiles() {
+    const query = $('searchInput').value.trim().toLocaleLowerCase('ru');
+    const sort = $('sortSelect').value;
+    let visible = 0;
+    let total = 0;
+    document.querySelectorAll('.zone').forEach(zone => {
+        const matchesZone = activeZone === 'all' || zone.dataset.scope === activeZone;
+        zone.hidden = !matchesZone;
+        let zoneMatches = 0;
+        zone.querySelectorAll('.category').forEach(category => {
+            const list = category.querySelector('.files');
+            const rows = Array.from(list.children);
+            rows.sort((a,b) => {
+                const names = a.dataset.name.localeCompare(b.dataset.name, 'ru', { numeric:true });
+                if (sort === 'size') return Number(b.dataset.size) - Number(a.dataset.size) || names;
+                if (sort === 'recent') return Number(b.dataset.modified || 0) - Number(a.dataset.modified || 0) || names;
+                return names;
+            }).forEach(row => list.append(row));
+            let matches = 0;
+            rows.forEach(row => {
+                row.hidden = !row.dataset.name.toLocaleLowerCase('ru').includes(query);
+                if (!row.hidden) matches++;
+            });
+            category.hidden = matches === 0;
+            category.querySelector('.count').textContent = matches;
+            if (query && matches) category.open = true;
+            zoneMatches += matches;
+            if (matchesZone) total += rows.length;
+        });
+        if (matchesZone) visible += zoneMatches;
+        if (query && !zoneMatches) zone.hidden = true;
+    });
+    $('resultsCount').textContent = query ? `Найдено: ${visible} из ${total}` : `Файлов: ${total}`;
+    $('noResults').hidden = !query || visible > 0;
+    $('resetFilters').hidden = !query && activeZone === 'all' && sort === 'name';
+    document.querySelectorAll('[data-zone]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.zone === activeZone)));
+    const params = new URLSearchParams(location.search);
+    for (const [key,value,defaultValue] of [['q',$('searchInput').value,''],['zone',activeZone,'all'],['sort',sort,'name']]) {
+        if (value === defaultValue) params.delete(key); else params.set(key,value);
     }
-    return response.json();
+    try { history.replaceState(null, '', location.pathname + (params.size ? '?' + params.toString() : '')); } catch { /* filtering also works in restricted browsers */ }
+}
+const initial = new URLSearchParams(location.search);
+$('searchInput').value = initial.get('q') || '';
+if (['my','shared'].includes(initial.get('zone'))) activeZone = initial.get('zone');
+if (['recent','size'].includes(initial.get('sort'))) $('sortSelect').value = initial.get('sort');
+document.querySelectorAll('[data-zone]').forEach(button => button.addEventListener('click', () => {
+    activeZone = button.dataset.zone;
+    if (!uploading && activeZone !== 'all') $('zoneSelect').value = activeZone;
+    filterFiles();
+}));
+$('searchInput').addEventListener('input', filterFiles);
+$('sortSelect').addEventListener('change', filterFiles);
+$('resetFilters').addEventListener('click', () => { $('searchInput').value=''; $('sortSelect').value='name'; activeZone='all'; filterFiles(); });
+const dates = new Intl.DateTimeFormat('ru', { day:'numeric', month:'short', year:'numeric' });
+function decorateFiles() {
+document.querySelectorAll('.file-row').forEach(row => {
+    const ext = row.dataset.name.split('.').pop();
+    row.querySelector('.file-icon').textContent = row.dataset.name.includes('.') ? ext.slice(0,5).toUpperCase() : 'FILE';
+    const time = row.querySelector('time');
+    if (time.dataset.timestamp) {
+        const date = new Date(Number(time.dataset.timestamp) * 1000);
+        time.dateTime = date.toISOString();
+        time.textContent = '· ' + dates.format(date);
+    }
+});
+}
+decorateFiles();
+filterFiles();
+async function updateListing() {
+    const response=await fetch(location.href,{headers:{Accept:'text/html'}});
+    if (response.redirected && new URL(response.url).pathname==='/login') throw unauthorized();
+    if (!response.ok) throw new Error('Не удалось обновить список файлов.');
+    const documentCopy=new DOMParser().parseFromString(await response.text(),'text/html');
+    const incoming=Array.from(documentCopy.querySelectorAll('.zone'));
+    if (incoming.length!==2) throw new Error('Не удалось обновить список файлов.');
+    document.querySelectorAll('.zone').forEach((zone,index) => zone.replaceWith(incoming[index]));
+    decorateFiles(); filterFiles();
 }
 
-document.getElementById('uploadForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fileInput = document.getElementById('fileInput');
-    const button = document.getElementById('uploadBtn');
-    const zone = document.getElementById('zoneSelect').value;
-    const category = document.getElementById('categorySelect').value;
-    if (!fileInput.files.length) return;
-
-    button.disabled = true;
-    showStatus('Загрузка…', true);
+function sizeLabel(bytes) { return bytes < 1024*1024 ? `${Math.ceil(bytes/1024)} KB` : `${(bytes/1024/1024).toFixed(1)} MB`; }
+function renderQueue() {
+    $('uploadQueue').replaceChildren();
+    queue.forEach(item => {
+        const row = document.createElement('li');
+        const name = document.createElement('span');
+        name.className='queue-name'; name.textContent=item.file.name + ' · ' + sizeLabel(item.file.size);
+        const state = document.createElement('span');
+        state.className='queue-state ' + item.state; state.textContent=item.message;
+        row.append(name,state); $('uploadQueue').append(row);
+    });
+}
+function selectFiles(files) {
+    if (uploading) return;
+    queue = Array.from(files).map(file => ({ file, state:'ready', message:'Готов к загрузке' }));
+    renderQueue();
+}
+$('fileInput').addEventListener('change', event => selectFiles(event.target.files));
+const dropzone = $('dropzone');
+['dragenter','dragover'].forEach(type => dropzone.addEventListener(type, event => { event.preventDefault(); if (!uploading) dropzone.classList.add('dragover'); }));
+['dragleave','drop'].forEach(type => dropzone.addEventListener(type, event => { event.preventDefault(); dropzone.classList.remove('dragover'); }));
+dropzone.addEventListener('drop', event => selectFiles(event.dataTransfer.files));
+function uploadFile(item, url, index, count) {
+    return new Promise((resolve,reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST',url); xhr.responseType='json'; xhr.setRequestHeader('Accept','application/json');
+        xhr.upload.addEventListener('progress', event => {
+            $('progressLabel').textContent=`Файл ${index} из ${count}: ${item.file.name}`;
+            if (event.lengthComputable) {
+                const percent = Math.round(event.loaded/event.total*100);
+                $('progressBar').value=percent; $('progressPercent').textContent=percent+'%';
+                if (percent===100) $('progressLabel').textContent=`Сохранение файла ${index} из ${count}…`;
+            } else { $('progressBar').removeAttribute('value'); $('progressPercent').textContent=''; }
+        });
+        xhr.onload = () => {
+            if (xhr.status===401) { reject(unauthorized()); return; }
+            if (xhr.status>=200 && xhr.status<300 && xhr.response && xhr.response.success) resolve(xhr.response);
+            else reject(new Error(xhr.response && xhr.response.message || `Ошибка загрузки (${xhr.status}). Повторите попытку.`));
+        };
+        xhr.onerror = () => reject(new Error('Соединение прервано. Проверьте список файлов перед повторной загрузкой.'));
+        xhr.onabort = () => reject(new Error('Загрузка прервана'));
+        const data = new FormData(); data.append('file',item.file); xhr.send(data);
+    });
+}
+$('uploadForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (uploading) return;
+    const pending = queue.filter(item => item.state!=='success');
+    if (!pending.length) { showStatus('Сначала выберите файлы для загрузки.',false); $('fileInput').focus(); return; }
+    uploading=true;
+    const controls=[$('fileInput'),$('zoneSelect'),$('categorySelect'),$('uploadBtn')];
+    controls.forEach(control => { control.disabled=true; });
+    $('uploadForm').setAttribute('aria-busy','true');
+    $('uploadProgress').hidden=false;
+    const zone=$('zoneSelect').value, category=$('categorySelect').value;
+    const url=`/upload/${zone}` + (category ? `?category=${encodeURIComponent(category)}` : '');
+    let failures=0;
     try {
-        const url = `/upload/${zone}` + (category ? `?category=${encodeURIComponent(category)}` : '');
-        const data = await apiCall(url, { method: 'POST', body: new FormData(e.target) });
-        showStatus(data.message, data.success);
-        if (data.success) setTimeout(() => location.reload(), 800);
-    } catch (err) {
-        if (err.message !== 'unauthorized') showStatus('Ошибка при загрузке файла', false);
-    } finally {
-        button.disabled = false;
-    }
-});
-
-document.addEventListener('click', async (e) => {
-    const target = e.target;
-    const scope = target.dataset.scope;
-    const category = target.dataset.category;
-    const file = target.dataset.file;
-
-    if (target.hasAttribute('data-delete')) {
-        if (!confirm(`Удалить файл «${file}»?`)) return;
-        try {
-            const data = await apiCall(`/delete/${scope}/${encodeURIComponent(category)}/${encodeURIComponent(file)}`, { method: 'DELETE' });
-            showStatus(data.message, data.success);
-            if (data.success) setTimeout(() => location.reload(), 600);
-        } catch (err) {
-            if (err.message !== 'unauthorized') showStatus('Ошибка при удалении файла', false);
-        }
-    }
-
-    if (target.hasAttribute('data-rename')) {
-        const newName = prompt('Новое имя файла:', file);
-        if (!newName || newName === file) return;
-        try {
-            const data = await apiCall(
-                `/rename/${scope}/${encodeURIComponent(category)}/${encodeURIComponent(file)}?newName=${encodeURIComponent(newName)}`,
-                { method: 'POST' }
-            );
-            showStatus(data.message, data.success);
-            if (data.success) setTimeout(() => location.reload(), 600);
-        } catch (err) {
-            if (err.message !== 'unauthorized') showStatus('Ошибка при переименовании', false);
-        }
-    }
-
-    if (target.hasAttribute('data-delete-user')) {
-        const username = target.dataset.deleteUser;
-        if (!confirm(`Удалить пользователя «${username}» вместе со всеми его личными файлами?`)) return;
-        try {
-            const data = await apiCall(`/admin/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
-            showStatus(data.message, data.success);
-            if (data.success) setTimeout(() => location.reload(), 600);
-        } catch (err) {
-            if (err.message !== 'unauthorized') showStatus('Ошибка при удалении пользователя', false);
-        }
-    }
-});
-
-const inviteBtn = document.getElementById('inviteBtn');
-if (inviteBtn) {
-    inviteBtn.addEventListener('click', async () => {
-        inviteBtn.disabled = true;
-        try {
-            const data = await apiCall('/admin/invites', { method: 'POST' });
-            if (data.success) {
-                document.getElementById('inviteUrl').textContent = data.invite_url;
-                document.getElementById('inviteLink').classList.add('visible');
-                showStatus(data.message, true);
-            } else {
-                showStatus(data.message, false);
+        for (let index=0; index<pending.length; index++) {
+            const item=pending[index];
+            if (item.file.size>Number($('uploadForm').dataset.maxSize)) {
+                item.state='error'; item.message='Превышает лимит размера'; failures++; renderQueue(); continue;
             }
-        } catch (err) {
-            if (err.message !== 'unauthorized') showStatus('Ошибка при создании приглашения', false);
-        } finally {
-            inviteBtn.disabled = false;
+            item.state='ready'; item.message='Загружается…'; renderQueue();
+            $('progressBar').value=0; $('progressPercent').textContent='0%';
+            $('progressLabel').textContent=`Файл ${index+1} из ${pending.length}: ${item.file.name}`;
+            try { await uploadFile(item,url,index+1,pending.length); item.state='success'; item.message='Загружен'; }
+            catch (error) { item.state='error'; item.message=error.message; failures++; if (error.message==='Требуется повторный вход') break; }
+            renderQueue();
         }
-    });
+        if (!failures) { uploading=false; refresh(`Загружено файлов: ${pending.length}.`); }
+        else {
+            if (pending.some(item => item.state==='success')) {
+                try { await updateListing(); } catch { /* successful files remain confirmed in the queue */ }
+            }
+            showStatus('Часть файлов не загружена. Успешные отмечены в очереди. Повторная загрузка отправит только остальные файлы.',false);
+        }
+    } finally {
+        uploading=false; controls.forEach(control => { control.disabled=false; });
+        $('uploadForm').removeAttribute('aria-busy'); $('uploadProgress').hidden=true;
+    }
+});
+window.addEventListener('beforeunload', event => { if (uploading) { event.preventDefault(); event.returnValue=''; } });
 
-    document.getElementById('copyInviteBtn').addEventListener('click', async () => {
-        const url = document.getElementById('inviteUrl').textContent;
-        try {
-            await navigator.clipboard.writeText(url);
-            showStatus('Ссылка скопирована в буфер обмена', true);
-        } catch {
-            prompt('Скопируйте ссылку вручную:', url);
-        }
-    });
+function openDialog(title,description,label,value,action,danger=false,readonly=false) {
+    $('dialogTitle').textContent=title; $('dialogDescription').textContent=description;
+    $('dialogField').hidden=label===null; $('dialogInputLabel').textContent=label || '';
+    $('dialogInput').value=value || ''; $('dialogInput').readOnly=readonly; $('dialogInput').required=Boolean(label)&&!readonly;
+    $('dialogError').hidden=true; $('dialogConfirm').textContent=danger ? 'Удалить' : readonly ? 'Готово' : 'Сохранить';
+    $('dialogConfirm').className='button ' + (danger ? 'danger' : 'primary');
+    dialogAction=action; dialog.showModal();
+    if (label) { $('dialogInput').focus(); $('dialogInput').select(); } else $('dialogCancel').focus();
 }
-
-document.getElementById('logoutBtn').addEventListener('click', async () => {
-    await fetch('/logout', { method: 'POST' });
-    location.href = '/login';
+$('dialogCancel').addEventListener('click', () => dialog.close());
+$('dialogForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    $('dialogConfirm').disabled=true; $('dialogError').hidden=true;
+    try { if (dialogAction) await dialogAction($('dialogInput').value); dialog.close(); }
+    catch (error) { $('dialogError').textContent=error.message; $('dialogError').hidden=false; }
+    finally { $('dialogConfirm').disabled=false; }
+});
+async function copyURL(url,description) {
+    try { await navigator.clipboard.writeText(url); showStatus(description); }
+    catch { openDialog('Копирование ссылки','Выделите и скопируйте ссылку. Открыть её можно после входа в файловый менеджер.','Ссылка',url,null,false,true); }
+}
+document.addEventListener('click', async event => {
+    const button=event.target.closest('[data-copy],[data-delete],[data-rename],[data-delete-user]');
+    if (!button) return;
+    if (uploading) { showStatus('Дождитесь завершения загрузки перед управлением файлами.',false); return; }
+    const { scope,category,file }=button.dataset;
+    if (button.hasAttribute('data-copy')) {
+        const url=new URL(fileURL(scope,category,file),location.origin).href;
+        await copyURL(url,scope==='my' ? 'Ссылка скопирована. Этот файл доступен только вашему аккаунту.' : 'Ссылка скопирована. Для открытия требуется вход.');
+    } else if (button.hasAttribute('data-rename')) {
+        openDialog('Переименовать файл',file,'Новое имя',file,async value => {
+            const name=value.trim();
+            if (!name || name==='.' || name==='..' || /[/\\\u0000]/.test(name)) throw new Error('Укажите имя без слешей и служебных символов.');
+            if (name===file) return;
+            const data=await apiCall('/rename/' + [scope,category,file].map(encodeURIComponent).join('/') + '?newName='+encodeURIComponent(name),{method:'POST'});
+            refresh(data.message);
+        });
+    } else if (button.hasAttribute('data-delete')) {
+        openDialog('Удалить файл?',`«${file}» будет удалён. Восстановить его через приложение нельзя.`,null,'',async () => {
+            const data=await apiCall('/delete/' + [scope,category,file].map(encodeURIComponent).join('/'),{method:'DELETE'}); refresh(data.message);
+        },true);
+    } else {
+        const username=button.dataset.deleteUser;
+        openDialog('Удалить участника?',`Аккаунт «${username}» и все его личные файлы будут удалены.`,null,'',async () => {
+            const data=await apiCall('/admin/users/'+encodeURIComponent(username),{method:'DELETE'}); refresh(data.message);
+        },true);
+    }
+});
+const inviteBtn=$('inviteBtn');
+if (inviteBtn) {
+    inviteBtn.addEventListener('click',async () => {
+        inviteBtn.disabled=true;
+        try { const data=await apiCall('/admin/invites',{method:'POST'}); $('inviteUrl').value=data.invite_url; $('inviteLink').hidden=false; showStatus(data.message); }
+        catch (error) { showStatus(error.message,false); }
+        finally { inviteBtn.disabled=false; }
+    });
+    $('copyInviteBtn').addEventListener('click',() => copyURL($('inviteUrl').value,'Приглашение скопировано.'));
+}
+$('logoutBtn').addEventListener('click',async () => {
+    if (uploading) { showStatus('Дождитесь завершения загрузки перед выходом.',false); return; }
+    $('logoutBtn').disabled=true;
+    try { const response=await fetch('/logout',{method:'POST'}); if (!response.ok) throw new Error('Не удалось выйти. Повторите попытку.'); location.assign('/login'); }
+    catch (error) { showStatus(error.message,false); $('logoutBtn').disabled=false; }
 });
 </script>
 </body>

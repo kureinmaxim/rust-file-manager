@@ -1,10 +1,12 @@
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
 use actix_session::Session;
+use actix_web::http::header::{ContentDisposition, DispositionParam, DispositionType};
 use actix_web::{delete, get, post, web, Error, HttpRequest, HttpResponse};
 use futures_util::StreamExt;
 use handlebars::Handlebars;
@@ -25,7 +27,16 @@ pub const HOME_DIR: &str = "home";
 struct CategoryFiles {
     category: String,
     title: String,
-    files: Vec<String>,
+    files: Vec<FileView>,
+}
+
+#[derive(Serialize)]
+struct FileView {
+    name: String,
+    url: String,
+    size: String,
+    size_bytes: u64,
+    modified: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -47,11 +58,19 @@ struct ApiResponse {
 
 impl ApiResponse {
     fn ok(message: String, total_size: Option<String>) -> HttpResponse {
-        HttpResponse::Ok().json(ApiResponse { success: true, message, total_size })
+        HttpResponse::Ok().json(ApiResponse {
+            success: true,
+            message,
+            total_size,
+        })
     }
 
     fn err(status: actix_web::http::StatusCode, message: String) -> HttpResponse {
-        HttpResponse::build(status).json(ApiResponse { success: false, message, total_size: None })
+        HttpResponse::build(status).json(ApiResponse {
+            success: false,
+            message,
+            total_size: None,
+        })
     }
 }
 
@@ -64,7 +83,10 @@ fn not_found(message: impl Into<String>) -> HttpResponse {
 }
 
 fn unauthorized() -> HttpResponse {
-    ApiResponse::err(actix_web::http::StatusCode::UNAUTHORIZED, "Требуется вход".into())
+    ApiResponse::err(
+        actix_web::http::StatusCode::UNAUTHORIZED,
+        "Требуется вход".into(),
+    )
 }
 
 pub fn format_bytes(bytes: u64) -> String {
@@ -77,7 +99,9 @@ pub fn format_bytes(bytes: u64) -> String {
 }
 
 fn folder_size(path: &Path) -> u64 {
-    let Ok(entries) = fs::read_dir(path) else { return 0 };
+    let Ok(entries) = fs::read_dir(path) else {
+        return 0;
+    };
     entries
         .flatten()
         .map(|entry| {
@@ -113,8 +137,10 @@ fn safe_path(
     file_name: &str,
 ) -> Result<PathBuf, HttpResponse> {
     let root = zone_root(config, scope, user)?;
-    let rel_dir = category_rel_dir(category).ok_or_else(|| bad_request("Недопустимая категория"))?;
-    let name = sanitize_file_name(file_name).ok_or_else(|| bad_request("Недопустимое имя файла"))?;
+    let rel_dir =
+        category_rel_dir(category).ok_or_else(|| bad_request("Недопустимая категория"))?;
+    let name =
+        sanitize_file_name(file_name).ok_or_else(|| bad_request("Недопустимое имя файла"))?;
     Ok(root.join(rel_dir).join(name))
 }
 
@@ -132,22 +158,63 @@ fn category_listing() -> Vec<(String, String)> {
         .collect()
 }
 
-fn list_zone(root: &Path) -> Vec<CategoryFiles> {
+/// Encode each URL segment independently: filenames may contain #, ?, % or +.
+fn encode_url_segment(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+            encoded.push(byte as char);
+        } else {
+            use std::fmt::Write as _;
+            write!(&mut encoded, "%{byte:02X}").expect("writing to a String");
+        }
+    }
+    encoded
+}
+
+fn list_zone(root: &Path, scope: &str) -> Vec<CategoryFiles> {
     let mut categories = Vec::new();
     for (category, title) in category_listing() {
         let rel_dir = category_rel_dir(&category).expect("listing only yields valid categories");
         let dir = root.join(rel_dir);
-        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
 
-        let mut files: Vec<String> = entries
+        let mut files: Vec<FileView> = entries
             .flatten()
-            .filter(|e| e.path().is_file())
-            .filter_map(|e| e.file_name().into_string().ok())
+            .filter_map(|entry| {
+                let metadata = entry.metadata().ok()?;
+                if !metadata.is_file() {
+                    return None;
+                }
+                let name = entry.file_name().into_string().ok()?;
+                Some(FileView {
+                    url: format!(
+                        "/uploads/{}/{}/{}",
+                        encode_url_segment(scope),
+                        encode_url_segment(&category),
+                        encode_url_segment(&name),
+                    ),
+                    name,
+                    size: format_bytes(metadata.len()),
+                    size_bytes: metadata.len(),
+                    modified: metadata
+                        .modified()
+                        .ok()
+                        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                        .map(|duration| duration.as_secs()),
+                })
+            })
             .collect();
-        files.sort();
+        files.sort_by(|a, b| a.name.cmp(&b.name));
 
         if !files.is_empty() {
-            categories.push(CategoryFiles { category, title, files });
+            categories.push(CategoryFiles {
+                category,
+                title,
+                files,
+            });
         }
     }
     categories
@@ -172,14 +239,14 @@ pub async fn index(
             scope: "my".into(),
             title: "Мои файлы".into(),
             icon: "🔒".into(),
-            categories: list_zone(&my_root),
+            categories: list_zone(&my_root, "my"),
             total_size: format_bytes(folder_size(&my_root)),
         },
         ZoneView {
             scope: "shared".into(),
             title: "Общие файлы".into(),
             icon: "👥".into(),
-            categories: list_zone(&shared_root),
+            categories: list_zone(&shared_root, "shared"),
             total_size: format_bytes(folder_size(&shared_root)),
         },
     ];
@@ -203,6 +270,7 @@ pub async fn index(
                 "zones": zones,
                 "users": users,
                 "max_file_size": format_bytes(config.max_file_size as u64),
+                "max_file_size_bytes": config.max_file_size,
                 "version": env!("CARGO_PKG_VERSION"),
                 "git_commit": env!("BUILD_GIT_COMMIT"),
                 "build_date": env!("BUILD_DATE"),
@@ -210,7 +278,9 @@ pub async fn index(
         )
         .map_err(actix_web::error::ErrorInternalServerError)?;
 
-    Ok(HttpResponse::Ok().content_type("text/html; charset=utf-8").body(html))
+    Ok(HttpResponse::Ok()
+        .content_type("text/html; charset=utf-8")
+        .body(html))
 }
 
 /// Authenticated download. Replaces a blanket static-files mount: the zone is
@@ -234,7 +304,17 @@ pub async fn download(
     if !target.is_file() {
         return Ok(not_found("Файл не найден"));
     }
+    let name = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("download")
+        .to_string();
+    // User-controlled HTML/SVG must not execute under the application's origin.
     Ok(NamedFile::open(target)?
+        .set_content_disposition(ContentDisposition {
+            disposition: DispositionType::Attachment,
+            parameters: vec![DispositionParam::Filename(name)],
+        })
         .use_last_modified(true)
         .into_response(&req))
 }
@@ -244,6 +324,68 @@ pub struct UploadQuery {
     /// Explicit target category (e.g. a backup folder). When absent the
     /// category is derived from the file extension.
     category: Option<String>,
+}
+
+/// An interrupted multipart stream must not leave a truncated file behind.
+struct PendingUpload {
+    path: PathBuf,
+    file: Option<fs::File>,
+    complete: bool,
+}
+
+impl PendingUpload {
+    fn create(dir: &Path, name: &str) -> io::Result<Self> {
+        let original = Path::new(name);
+        let stem = original
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("file");
+        let extension = original.extension().and_then(|s| s.to_str()).unwrap_or("");
+        for counter in 0u64.. {
+            let candidate = if counter == 0 {
+                name.to_string()
+            } else if extension.is_empty() {
+                format!("{stem}({counter})")
+            } else {
+                format!("{stem}({counter}).{extension}")
+            };
+            let path = dir.join(candidate);
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(file) => {
+                    return Ok(Self {
+                        path,
+                        file: Some(file),
+                        complete: false,
+                    })
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        unreachable!("exhausted filename suffixes")
+    }
+
+    fn finish(&mut self) -> io::Result<()> {
+        if let Some(file) = self.file.as_mut() {
+            file.flush()?;
+        }
+        self.file.take();
+        self.complete = true;
+        Ok(())
+    }
+}
+
+impl Drop for PendingUpload {
+    fn drop(&mut self) {
+        self.file.take();
+        if !self.complete {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
 }
 
 #[post("/upload/{scope}")]
@@ -269,7 +411,7 @@ pub async fn upload(
         None => None,
     };
 
-    let mut message = String::from("Файл не получен");
+    let mut message = None;
 
     while let Some(item) = payload.next().await {
         let mut field = item?;
@@ -295,45 +437,47 @@ pub async fn upload(
         let category_dir = root.join(rel_dir);
         fs::create_dir_all(&category_dir)?;
 
-        // Avoid overwriting: append (1), (2), ... until the name is free.
-        let stem = Path::new(&file_name)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("file");
-        let mut target = category_dir.join(&file_name);
-        let mut counter = 1;
-        while target.exists() {
-            let suffixed = if extension.is_empty() {
-                format!("{stem}({counter})")
-            } else {
-                format!("{stem}({counter}).{extension}")
-            };
-            target = category_dir.join(suffixed);
-            counter += 1;
-        }
-
-        let mut file = fs::File::create(&target)?;
+        // Reserve the name atomically, including across simultaneous uploads.
+        let mut pending = PendingUpload::create(&category_dir, &file_name)?;
         let mut size = 0usize;
         while let Some(chunk) = field.next().await {
             let data = chunk?;
             size += data.len();
             if size > config.max_file_size {
-                drop(file);
-                let _ = fs::remove_file(&target);
                 return Ok(ApiResponse::err(
                     actix_web::http::StatusCode::PAYLOAD_TOO_LARGE,
-                    format!("Файл превышает лимит {}", format_bytes(config.max_file_size as u64)),
+                    format!(
+                        "Файл превышает лимит {}",
+                        format_bytes(config.max_file_size as u64)
+                    ),
                 ));
             }
-            file.write_all(&data)?;
+            pending
+                .file
+                .as_mut()
+                .expect("upload file is open")
+                .write_all(&data)?;
         }
 
-        let saved_name = target.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+        pending.finish()?;
+        let saved_name = pending
+            .path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?");
         tracing::info!(user = %user.username, scope = %scope.as_str(), category = %category, file = saved_name, size, "file uploaded");
-        message = format!("Файл загружен в категорию «{category}»: {saved_name}");
+        message = Some(format!(
+            "Файл загружен в категорию «{category}»: {saved_name}"
+        ));
     }
 
-    Ok(ApiResponse::ok(message, Some(format_bytes(folder_size(&root)))))
+    match message {
+        Some(message) => Ok(ApiResponse::ok(
+            message,
+            Some(format_bytes(folder_size(&root))),
+        )),
+        None => Ok(bad_request("Файл не получен")),
+    }
 }
 
 #[delete("/delete/{scope}/{category}/{filename}")]
@@ -403,4 +547,59 @@ pub async fn rename_file(
         format!("Файл переименован: {} → {}", file_name, query.new_name),
         None,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_directory() -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "rfm-upload-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn url_segments_preserve_special_and_unicode_names() {
+        assert_eq!(encode_url_segment("a #?%+.txt"), "a%20%23%3F%25%2B.txt");
+        assert_eq!(
+            encode_url_segment("тест.txt"),
+            "%D1%82%D0%B5%D1%81%D1%82.txt"
+        );
+        assert_eq!(encode_url_segment("../a"), "..%2Fa");
+    }
+
+    #[test]
+    fn simultaneous_uploads_reserve_distinct_names() {
+        let dir = test_directory();
+        let mut first = PendingUpload::create(&dir, "report.txt").unwrap();
+        let mut second = PendingUpload::create(&dir, "report.txt").unwrap();
+        assert_ne!(first.path, second.path);
+        first.file.as_mut().unwrap().write_all(b"first").unwrap();
+        second.file.as_mut().unwrap().write_all(b"second").unwrap();
+        first.finish().unwrap();
+        second.finish().unwrap();
+        assert_eq!(fs::read(&first.path).unwrap(), b"first");
+        assert_eq!(fs::read(&second.path).unwrap(), b"second");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn incomplete_uploads_are_removed_but_completed_files_survive() {
+        let dir = test_directory();
+        let partial = PendingUpload::create(&dir, "incomplete.txt").unwrap();
+        let path = partial.path.clone();
+        drop(partial);
+        assert!(!path.exists());
+        let mut complete = PendingUpload::create(&dir, "complete.txt").unwrap();
+        complete.finish().unwrap();
+        let path = complete.path.clone();
+        drop(complete);
+        assert!(path.exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
 }

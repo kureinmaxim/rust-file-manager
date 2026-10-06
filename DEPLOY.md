@@ -23,7 +23,7 @@ A-запись `files.example.com` должна указывать на IP ва�
 
 ```bash
 sudo apt update && sudo apt install -y build-essential pkg-config git
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Rust 1.75+
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Rust 1.88+
 source "$HOME/.cargo/env"
 
 git clone https://github.com/kureinmaxim/rust-file-manager.git
