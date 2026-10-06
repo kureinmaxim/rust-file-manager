@@ -1,170 +1,247 @@
-# POST_DEPLOY.md — обновление работающей установки
+# Обновление работающей установки
 
-Runbook для ситуации: файловый менеджер **уже задеплоен и работает**
-(по [DEPLOY.md](DEPLOY.md)), а в репозитории вышла новая версия — например,
-на сервере крутится `1.1.1`, а в репо уже `v1.2.0`. Здесь — как обновиться
-аккуратно, с проверками и путём отката.
+Проверено для выпуска **v1.3.0** 06.10.2026. Этот порядок также подходит для
+переустановки программы с сохранением файлов и пользователей. Первичная
+установка описана в [DEPLOY.md](DEPLOY.md).
 
-Все команды выполняются на VPS **под root** (или с `sudo`). Предполагается
-раскладка из DEPLOY.md: клон репозитория на сервере, бинарник
-`/usr/local/bin/rust-file-manager`, юнит `rust-file-manager.service`.
+Команды рассчитаны на Ubuntu/Debian, Bash, systemd и root/sudo. Выполняйте
+блоки последовательно в одной SSH-сессии (например, в Tabby); при ошибке
+не переходите к установке. Если приложение запущено контейнером или другим
+менеджером процессов, сначала определите его фактический способ обновления.
 
----
-
-## 0. Узнать, какая версия работает сейчас
+## 0. Проверить работающую службу и реальные пути
 
 ```bash
-# версия и коммит, с которыми стартовал работающий процесс:
-journalctl -u rust-file-manager --no-pager | grep 'starting server' | tail -1
-# в строке будет: version="1.1.1" commit="abc1234" built="..."
+uname -sm
+sudo systemctl show rust-file-manager.service \
+  -p ActiveState -p SubState -p MainPID -p User -p WorkingDirectory \
+  -p FragmentPath -p ExecStart -p EnvironmentFiles
+sudo journalctl -u rust-file-manager.service --no-pager -o cat |
+  grep 'starting server' | tail -1
+free -h
+df -h / /var/tmp /usr/local/bin
 ```
 
-То же самое видно в футере веб-интерфейса после входа:
-`rust-file-manager v1.1.1 · коммит abc1234 · сборка ...`.
+`ExecStart` показывает установленный бинарник, `EnvironmentFiles` — путь
+настроек. Не публикуйте содержимое env, хеши паролей, пользователей и ключи.
+Если служба не найдена, эти команды установки пока применять нельзя.
+Проверьте фактические `UPLOAD_DIR` и `USERS_FILE` локально на сервере, не
+копируя секреты в чат или репозиторий.
 
-А какая версия доступна в репозитории:
+Для стандартной раскладки из DEPLOY.md задайте переменные ниже. Замените
+пути, адрес и имя службы на подтверждённые значения своей установки:
 
 ```bash
-cd /root/rust-file-manager        # путь к вашему клону
-git fetch --tags
-git describe --tags origin/main   # например: v1.2.0
+RFM_UNIT=rust-file-manager.service
+RFM_BIN=/usr/local/bin/rust-file-manager
+RFM_DATA=/var/lib/rust-file-manager
+RFM_ENV=/etc/rust-file-manager/env
+RFM_LOCAL_URL=http://127.0.0.1:8080/login
+RFM_PUBLIC_URL=https://files.example.com/login
+RFM_RELEASE=v1.3.0
+RFM_COMMIT=be3cbd70b8177de0ddcaec3760de25452ac76a1b
+sudo test -f "$RFM_BIN" && sudo test ! -L "$RFM_BIN" &&
+sudo test -d "$RFM_DATA" && sudo test -f "$RFM_ENV" &&
+sudo systemctl is-active "$RFM_UNIT"
 ```
 
-Если версии совпадают — обновлять нечего, дальше не идём.
+Проверка рассчитана на обычный файл бинарника. Если `ExecStart` использует
+симлинк на каталог релизов, сохраните и обновляйте именно эту схему.
 
-## 1. Прочитать, что изменилось
+Для `files.example.com` по выводу терминала подтверждены Linux x86_64,
+Rust/Cargo 1.96.0 и активная systemd-служба `rust-file-manager.service` от
+`filemgr`, с рабочим каталогом `/var/lib/rust-file-manager` и юнитом
+`/etc/systemd/system/rust-file-manager.service`. Также подтверждён HTTP 200
+страницы входа через Cloudflare. На VPS около 2 GiB RAM и 2 GiB swap;
+используйте одно задание сборки. Подтверждены бинарник
+`/usr/local/bin/rust-file-manager` и env `/etc/rust-file-manager/env`.
+Размещение uploads/`users.json`, порт SSH и установленная версия процесса
+пока не подтверждены: строки запуска в присланном выводе нет. Версию узнавайте из журнала и футера: CLI-команда
+`rust-file-manager --version` не реализована.
+
+## 1. Выбрать выпуск и собрать отдельно
+
+Для 1.3.0 формат `users.json`, расположение многопользовательского хранилища
+и env не менялись. Новые шаблоны требуют пересборки бинарника. Минимум Rust
+— **1.88**; скачивание теперь возвращает attachment, то есть загруженные
+HTML/SVG и другие файлы скачиваются вместо встроенного просмотра.
+
+Исходники: [GitHub](https://github.com/kureinmaxim/rust-file-manager/tree/v1.3.0),
+ожидаемый полный коммит — значение `RFM_COMMIT` выше. Используйте тег и
+`Cargo.lock`, не произвольный HEAD основной ветки.
 
 ```bash
-git log --oneline HEAD..origin/main      # список новых коммитов
+command -v cargo
+rustc --version
+cargo --version
 ```
 
-Release notes: `https://github.com/kureinmaxim/rust-file-manager/releases`.
-Особое внимание — изменениям в `.env.example` (могли появиться новые
-переменные) и заметкам о миграции данных.
+Если Rust установлен через rustup, но отсутствует в PATH:
 
 ```bash
-git diff HEAD..origin/main -- .env.example
+. "$HOME/.cargo/env"
 ```
 
-## 2. Обновить код и собрать
+При слишком старом toolchain обновите его через `rustup update stable`.
+Если действует override на старую версию, после клонирования выберите
+`rustup override set stable` в сборочном каталоге и проверьте `rustc --version`.
+Первичная установка Rust и системных пакетов — в DEPLOY.md.
+
+Получите выпуск в новый каталог; действующий клон и его локальные изменения
+останутся на месте:
 
 ```bash
-cd /root/rust-file-manager
-git pull
-git describe --tags                       # убедиться: нужный тег, напр. v1.2.0
+RFM_BUILD_DIR=$(mktemp -d "$HOME/rfm-build-1.3.0.XXXXXX")
+git clone --depth 1 --branch "$RFM_RELEASE" \
+  https://github.com/kureinmaxim/rust-file-manager.git "$RFM_BUILD_DIR" &&
+cd "$RFM_BUILD_DIR" &&
+test "$(git rev-parse HEAD)" = "$RFM_COMMIT" &&
+test -z "$(git status --porcelain)" &&
+CARGO_BUILD_JOBS=1 cargo build --release --locked --bin rust-file-manager
 ```
 
-> **VPS с 1–2 ГБ RAM без swap:** release-сборка (LTO) может упасть по
-> памяти на линковке. Добавьте временный swap:
->
-> ```bash
-> fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
-> ```
+Старая служба продолжает работать во время сборки. Продолжайте только после
+успешного завершения команды. Одно задание сборки выбрано для VPS с небольшой памятью. Существующий
+swap сохраняйте; создавать или удалять swap для обычного обновления не нужно.
+
+Если `CARGO_TARGET_DIR` или `build.target` настроены нестандартно, подставьте
+фактический путь итогового Linux-бинарника вместо `target/release/...` ниже.
+Сборка на macOS не создаёт подходящий VPS-бинарник без отдельной Linux-среды
+или настроенной кросс-компиляции.
+
+## 2. Сохранить прежний бинарник и настройки
+
+Создайте отдельный каталог с закрытыми правами. Не перезаписывайте один
+`*.prev`: при повторной попытке он может уже содержать нерабочую версию.
 
 ```bash
-cargo build --release                     # 5–15 минут на 2 vCPU
+RFM_BACKUP="/var/backups/rust-file-manager/$(date -u +%Y%m%dT%H%M%SZ)-$$"
+RFM_UNIT_FILE=$(sudo systemctl show "$RFM_UNIT" -p FragmentPath --value)
+sudo install -d -o root -g root -m 0700 "$RFM_BACKUP" &&
+sudo cp -p -- "$RFM_BIN" "$RFM_BACKUP/rust-file-manager" &&
+sudo cp -p -- "$RFM_ENV" "$RFM_BACKUP/env" &&
+sudo cp -p -- "$RFM_UNIT_FILE" "$RFM_BACKUP/unit.service"
+printf 'Резервная копия: %s\n' "$RFM_BACKUP"
 ```
 
-Сборка идёт **пока старая версия работает** — даунтайма на этом шаге нет.
+Также сохраните существующие systemd drop-in файлы, если они есть.
+Настройки не нужно заново генерировать или заменять шаблоном.
 
-## 3. Подменить бинарник (даунтайм ~5 секунд)
+Убедитесь в наличии свежей копии uploads и `users.json`. Для согласованной
+копии используйте snapshot хранилища либо остановку записи на время копии.
+Если оба находятся внутри подтверждённого `RFM_DATA`, пример ниже сохраняет
+весь этот каталог и возобновляет прежнюю службу даже при ошибке архивации:
 
 ```bash
-# бэкап текущего бинарника — это и есть путь отката
-cp /usr/local/bin/rust-file-manager /usr/local/bin/rust-file-manager.prev
-
-# именно install, НЕ cp: cp на запущенный бинарник падает с "Text file busy",
-# а install сначала удаляет старый файл и потому работает без остановки сервиса
-install target/release/rust-file-manager /usr/local/bin/rust-file-manager
-systemctl restart rust-file-manager
+sudo env RFM_UNIT="$RFM_UNIT" RFM_DATA="$RFM_DATA" RFM_BACKUP="$RFM_BACKUP" \
+  bash -euo pipefail <<'SH'
+trap 'systemctl start "$RFM_UNIT"' EXIT
+systemctl stop "$RFM_UNIT"
+tar --acls --xattrs -cpf "$RFM_BACKUP/data.tar" -C "$RFM_DATA" .
+SH
 ```
 
-Если в новой версии менялся `deploy/rust-file-manager.service` — обновить
-и его (редко; видно в `git log` шага 1):
+Этот необязательный блок останавливает сервис на всё время копирования.
+Для большого хранилища заранее выберите snapshot/другой способ, проверьте
+размер и свободное место. Если данные расположены вне `RFM_DATA`, копируйте
+их по реальным путям; архив рабочего каталога сам по себе их не сохранит.
+
+Запишите путь `RFM_BACKUP`: он понадобится при откате или новой SSH-сессии.
+
+## 3. Атомарно заменить бинарник и перезапустить
+
+Установка создаёт файл рядом с действующим бинарником, затем выполняет
+переименование в пределах той же файловой системы. Это сохраняет целый
+старый файл до завершения подготовки и не пишет в работающий executable.
+Пример сохраняет владельца, группу и обычные права установленного бинарника:
 
 ```bash
-cp deploy/rust-file-manager.service /etc/systemd/system/
-systemctl daemon-reload && systemctl restart rust-file-manager
+RFM_NEXT="${RFM_BIN}.next-${RFM_RELEASE}-$$"
+RFM_BIN_UID=$(sudo stat -c '%u' "$RFM_BIN")
+RFM_BIN_GID=$(sudo stat -c '%g' "$RFM_BIN")
+RFM_BIN_MODE=$(sudo stat -c '%a' "$RFM_BIN")
+sudo install -o "$RFM_BIN_UID" -g "$RFM_BIN_GID" -m "$RFM_BIN_MODE" \
+  "$RFM_BUILD_DIR/target/release/rust-file-manager" "$RFM_NEXT" &&
+sudo mv -fT -- "$RFM_NEXT" "$RFM_BIN" &&
+sudo systemctl restart "$RFM_UNIT"
 ```
 
-## 4. Проверить
+Если установлены специальные ACL, capabilities или SELinux-контекст,
+примените действующую политику установки до рестарта; приведённый пример
+сохраняет только обычного владельца/группу/mode. Для юнита из проекта таких
+дополнительных атрибутов не требуется.
+
+Юнит, env, nginx и Cloudflare в этом выпуске обновлять не нужно. Если вы
+меняете юнит отдельно, сохраните локальные настройки и выполните
+`systemctl daemon-reload` перед перезапуском. Смена секретов сбрасывает
+сессии; действующий `SESSION_SECRET` сохраните.
+
+## 4. Проверить службу, версию и публичный сайт
 
 ```bash
-systemctl status rust-file-manager --no-pager | head -5    # active (running)
-journalctl -u rust-file-manager -n 20 --no-pager           # starting server version="1.2.0" ...
-curl -sI http://127.0.0.1:8080/login | head -1             # HTTP/1.1 200 OK
+sudo systemctl is-active "$RFM_UNIT"
+sudo systemctl status "$RFM_UNIT" --no-pager
+sudo journalctl -u "$RFM_UNIT" --no-pager -o cat |
+  grep 'starting server' | tail -1
+curl --fail --silent --show-error --max-time 10 \
+  -o /dev/null -w '%{http_code}\n' "$RFM_LOCAL_URL"
+curl --fail --silent --show-error --max-time 20 \
+  -o /dev/null -w '%{http_code}\n' "$RFM_PUBLIC_URL"
 ```
 
-В логе не должно быть ошибок; строка `starting server` должна показывать
-**новую** версию и коммит **без суффикса `-dirty`** (dirty = собрано из
-изменённого дерева; после чистого `git pull` так быть не должно).
+Ожидаются `active`, строка `version="1.3.0" commit="be3cbd7"` без `-dirty`
+и оба HTTP-ответа 200. Сравните время строки запуска с текущим рестартом:
+старая успешная запись не подтверждает запуск новой версии.
 
-Затем из браузера: вход, файлы на месте, тестовая загрузка. Если на сервере
-рядом живут другие сервисы — убедиться, что они не задеты:
+В браузере после входа проверьте футер, личные/общие зоны, загрузку и
+скачивание отдельного тестового файла, папки бэкапов **HA / Серверы / Project**,
+поиск, переименование и вид на телефоне. Существующие файлы для теста не
+переименовывайте и не удаляйте. При необходимости обновите страницу без
+браузерного кэша.
+
+Если localhost отвечает, а домен нет, проверьте журнал действующего reverse
+proxy и Cloudflare отдельно. При HTTP 413 учитывайте три разных лимита:
+на файл в приложении, на тело запроса в nginx, на запрос в Cloudflare.
+Пользовательский лимит 500 MB не снимает ограничение прокси Cloudflare.
+
+## 5. Откат бинарника
+
+При неуспешной проверке верните сохранённый бинарник, не восстанавливая
+данные поверх новых загрузок. В той же сессии `RFM_BACKUP` уже задан; после
+переподключения сначала укажите записанный путь к нужной копии.
 
 ```bash
-systemctl --no-pager --type=service --state=running list-units | grep -E 'nginx|caddy|docker'
+sudo test -f "$RFM_BACKUP/rust-file-manager" &&
+sudo systemctl stop "$RFM_UNIT" &&
+sudo cp -p -- "$RFM_BACKUP/rust-file-manager" "${RFM_BIN}.rollback-$$" &&
+sudo mv -fT -- "${RFM_BIN}.rollback-$$" "$RFM_BIN" &&
+sudo systemctl start "$RFM_UNIT"
+sudo systemctl is-active "$RFM_UNIT"
+sudo journalctl -u "$RFM_UNIT" --no-pager -o cat |
+  grep 'starting server' | tail -1
 ```
 
-## 5. Прибраться
+Для перехода с уже многопользовательской версии на 1.3.0 миграции данных
+нет: возврат бинарника достаточен. При обновлении с версии до multi-user
+первый старт переносит старые категории в `shared/`; такой переход требует
+отдельной проверки копии и плана восстановления данных. Не восстанавливайте
+старый архив поверх новых файлов без оценки изменений после обновления.
 
-```bash
-# если добавляли временный swap:
-swapoff /swapfile && rm /swapfile
+Оставьте копию прежнего бинарника и данных до подтверждения работы. Очистка
+сборочного каталога и старых копий — отдельный шаг после успешной проверки.
 
-# сборочный кэш занимает ~2 ГБ; на тесном диске можно чистить после каждого обновления:
-du -sh target/ && cargo clean
-```
+## Частые проблемы
 
-Бэкап-бинарник `rust-file-manager.prev` оставьте до следующего обновления.
+| Симптом | Проверка и действие |
+|---|---|
+| `cargo: command not found` | Загрузить `$HOME/.cargo/env` для пользователя сборки; собирать без sudo |
+| Cargo требует более новый Rust | Проверить `rustc --version` и выбранный toolchain; минимум 1.88 |
+| Сборка убита (`SIGKILL`) | Проверить память; повторить с `CARGO_BUILD_JOBS=1`, при необходимости собрать на другой Linux-машине |
+| `Text file busy` | Не копировать поверх запущенного файла; использовать соседний файл и rename из шага 3 |
+| `Exec format error` | Проверить Linux и архитектуру; macOS-бинарник не подходит |
+| Сервис не стартует | Прочитать `journalctl -u "$RFM_UNIT" -n 30 --no-pager`, проверить пути и права локально; не публиковать секреты |
+| HTTP 413 | Проверить лимиты приложения, nginx и Cloudflare; multipart требует небольшого запаса |
+| Старый интерфейс после рестарта | Сравнить `ExecStart`, время запуска, версию/коммит в журнале и футере; шаблоны встроены в бинарник |
 
----
-
-## Откат (если новая версия повела себя плохо)
-
-```bash
-systemctl stop rust-file-manager
-mv /usr/local/bin/rust-file-manager.prev /usr/local/bin/rust-file-manager
-systemctl start rust-file-manager
-journalctl -u rust-file-manager -n 10 --no-pager   # снова старая версия
-```
-
-Данные (`UPLOAD_DIR`, `users.json`) обновление не трогает — откат бинарника
-безопасен. Исключение — если в release notes явно написано о миграции
-формата данных: тогда сначала прочитать заметки к релизу.
-
----
-
-## Частные случаи
-
-### Обновление 1.1.1 → 1.2.0
-
-Изменений формата данных и `.env` нет — достаточно шагов 0–5. Если ваша
-сборка 1.1.1 была сделана из main **после** слияния multi-user (в футере
-есть селектор зон «Мои/Общие файлы») — функционально ничего не изменится,
-обновится только версия, метаданные сборки и инструмент `cargo xtask`.
-Если же сборка была **до** multi-user (футера с зонами нет) — при первом
-старте новая версия автоматически перенесёт папки категорий из корня
-`uploads/` в общую зону `shared/`; это видно в логе строками
-`migrated legacy category dir into shared zone`.
-
-### «cargo: command not found» под sudo
-
-Rust ставился пользователю в `~/.cargo` — собирайте без sudo, либо
-запускайте по полному пути: `/root/.cargo/bin/cargo build --release`.
-
-### `cp: cannot create regular file ... Text file busy`
-
-Попытка перезаписать бинарник, из которого прямо сейчас работает процесс.
-Linux запрещает «переписывание по живому». Решения: использовать `install`
-вместо `cp` (он удаляет старый файл и создаёт новый — см. шаг 3), либо
-остановить сервис на время копирования
-(`systemctl stop rust-file-manager && cp ... && systemctl start rust-file-manager`).
-Внимание: если `cp` упал с этой ошибкой, **бинарник не обновился** — рестарт
-после этого снова запустит старую версию (проверяйте строку
-`starting server` в логе).
-
-### Сборка убита на линковке (`signal: 9, SIGKILL`)
-
-Не хватило памяти — добавьте swap (шаг 2) и повторите; сборка продолжится
-с места падения.
+Shell-синтаксис примеров проверен. Эти команды не были выполнены на рабочем
+VPS; подтвердите фактическую раскладку шагом 0 перед применением.
