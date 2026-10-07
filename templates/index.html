@@ -136,6 +136,8 @@
         dialog h2 { font-size:20px; margin:0 0 10px; }
         dialog p { color:var(--muted); font-size:14px; margin:0 0 18px; }
         .dialog-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:22px; }
+        .move-fields { display:grid; gap:12px; margin-bottom:6px; }
+        dialog .move-hint { margin:0; font-size:13px; }
         .dialog-error { color:var(--danger); font-size:13px; margin-top:10px; overflow-wrap:anywhere; }
         @media (max-width:1000px) {
             .layout { display:block; }
@@ -200,6 +202,7 @@
     <symbol id="edit" viewBox="0 0 24 24"><path d="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14Z"/></symbol>
     <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18m-12 0V3h6v3M5 6l1 15h12l1-15M9 10v7m6-7v7"/></symbol>
     <symbol id="chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="move" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3Z"/><path d="M8 14h8m-3-3 3 3-3 3"/></symbol>
     <symbol id="folder-plus" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3Z"/><path d="M12 11v6m-3-3h6"/></symbol>
 </svg>
 <a class="skip-link" href="#filesHeading">Перейти к файлам</a>
@@ -285,6 +288,12 @@
 <dialog id="actionDialog" aria-labelledby="dialogTitle" aria-describedby="dialogDescription">
     <form id="dialogForm"><h2 id="dialogTitle"></h2><p id="dialogDescription"></p>
         <div class="field" id="dialogSelectField" hidden><label for="dialogSelect">Категория</label><select id="dialogSelect">{{#each categories}}<option value="{{this.id}}">{{this.title}}</option>{{/each}}</select></div>
+        <div class="move-fields" id="dialogMoveFields" hidden>
+            <div class="field"><label for="moveZone">Зона</label><select id="moveZone"><option value="my">Мои файлы — только для меня</option><option value="shared">Общие файлы — для всех</option></select></div>
+            <div class="field"><label for="moveCategory">Категория</label><select id="moveCategory">{{#each categories}}<option value="{{this.id}}">{{this.title}}</option>{{/each}}</select></div>
+            <div class="field"><label for="moveFolder">Папка</label><select id="moveFolder"></select></div>
+            <p class="move-hint" id="moveHint" aria-live="polite"></p>
+        </div>
         <div class="field" id="dialogField"><label for="dialogInput" id="dialogInputLabel">Новое имя</label><input type="text" id="dialogInput" autocomplete="off"></div>
         <div class="dialog-error" id="dialogError" role="alert" hidden></div>
         <div class="dialog-actions"><button class="button" type="button" id="dialogCancel">Отмена</button><button class="button primary" type="submit" id="dialogConfirm">Сохранить</button></div>
@@ -554,15 +563,16 @@ $('uploadForm').addEventListener('submit', async event => {
 });
 window.addEventListener('beforeunload', event => { if (uploading) { event.preventDefault(); event.returnValue=''; } });
 
-function openDialog(title,description,label,value,action,danger=false,readonly=false,withCategory=false) {
-    $('dialogSelectField').hidden=!withCategory;
+function openDialog(title,description,label,value,action,danger=false,readonly=false,fields='') {
+    $('dialogSelectField').hidden=fields!=='category';
+    $('dialogMoveFields').hidden=fields!=='move';
     $('dialogTitle').textContent=title; $('dialogDescription').textContent=description;
     $('dialogField').hidden=label===null; $('dialogInputLabel').textContent=label || '';
     $('dialogInput').value=value || ''; $('dialogInput').readOnly=readonly; $('dialogInput').required=Boolean(label)&&!readonly;
     $('dialogError').hidden=true; $('dialogConfirm').textContent=danger ? 'Удалить' : readonly ? 'Готово' : 'Сохранить';
     $('dialogConfirm').className='button ' + (danger ? 'danger' : 'primary');
     dialogAction=action; dialog.showModal();
-    if (withCategory) $('dialogSelect').focus(); else if (label) { $('dialogInput').focus(); $('dialogInput').select(); } else $('dialogCancel').focus();
+    if (fields==='category') $('dialogSelect').focus(); else if (fields==='move') $('moveZone').focus(); else if (label) { $('dialogInput').focus(); $('dialogInput').select(); } else $('dialogCancel').focus();
 }
 $('dialogCancel').addEventListener('click', () => dialog.close());
 $('dialogForm').addEventListener('submit', async event => {
@@ -584,8 +594,21 @@ function folderName(value) {
     return name;
 }
 function folderQuery(params) { return '?' + new URLSearchParams(params).toString(); }
+// Destination folders come from the tree already on the page.
+function updateMoveFields(preferredPath) {
+    const scope=$('moveZone').value, category=$('moveCategory').value;
+    const paths=Array.from(document.querySelectorAll('.folder'))
+        .filter(folder => folder.dataset.scope===scope && folder.dataset.category===category)
+        .map(folder => folder.dataset.path)
+        .sort((a,b) => a.localeCompare(b,'ru',{ numeric:true }));
+    $('moveFolder').replaceChildren(new Option('Без папки — в корень категории',''), ...paths.map(p => new Option(p.split('/').join(' › '),p)));
+    $('moveFolder').value=paths.includes(preferredPath) ? preferredPath : '';
+    $('moveHint').textContent=scope==='my' ? 'Файл будет виден только вам.' : 'Файл увидят все участники.';
+}
+$('moveZone').addEventListener('change',() => updateMoveFields($('moveFolder').value));
+$('moveCategory').addEventListener('change',() => updateMoveFields($('moveFolder').value));
 document.addEventListener('click', async event => {
-    const button=event.target.closest('[data-copy],[data-delete],[data-rename],[data-delete-user],[data-upload-here],[data-new-folder],[data-rename-folder],[data-delete-folder]');
+    const button=event.target.closest('[data-copy],[data-delete],[data-rename],[data-move],[data-delete-user],[data-upload-here],[data-new-folder],[data-rename-folder],[data-delete-folder]');
     if (!button) return;
     if (uploading) { showStatus('Дождитесь завершения загрузки перед управлением файлами.',false); return; }
     const { scope,category,file }=button.dataset;
@@ -604,6 +627,20 @@ document.addEventListener('click', async event => {
             const data=await apiCall('/rename' + fileTarget() + folderQuery(params),{method:'POST'});
             refresh(data.message);
         });
+    } else if (button.hasAttribute('data-move')) {
+        // Default: the other zone, same category, same folder when it exists there.
+        $('moveZone').value=scope==='shared' ? 'my' : 'shared';
+        $('moveCategory').value=category;
+        updateMoveFields(path);
+        openDialog('Переместить файл',`«${file}» из «${placeLabel(scope,category,path)}»`,null,'',async () => {
+            const toScope=$('moveZone').value, toCategory=$('moveCategory').value, toPath=$('moveFolder').value;
+            const params={ toScope, toCategory, toPath };
+            if (path) params.path=path;
+            const data=await apiCall('/move' + fileTarget() + folderQuery(params),{method:'POST'});
+            if (toPath) rememberOpen(toScope,toCategory,toPath);
+            refresh(data.message);
+        },false,false,'move');
+        $('dialogConfirm').textContent='Переместить';
     } else if (button.hasAttribute('data-delete')) {
         openDialog('Удалить файл?',`«${file}» будет удалён. Восстановить его через приложение нельзя.`,null,'',async () => {
             const data=await apiCall('/delete' + fileTarget() + (path ? folderQuery({ path }) : ''),{method:'DELETE'}); refresh(data.message);
@@ -621,7 +658,7 @@ document.addEventListener('click', async event => {
             const data=await apiCall('/folders/' + [scope,target].map(encodeURIComponent).join('/') + folderQuery({ path, name }),{method:'POST'});
             rememberOpen(scope,target,path ? `${path}/${name}` : name);
             refresh(data.message);
-        },false,false,!category);
+        },false,false,category ? '' : 'category');
     } else if (button.hasAttribute('data-rename-folder')) {
         const old=button.dataset.name;
         openDialog('Переименовать папку',placeLabel(scope,category,path),'Новое имя',old,async value => {

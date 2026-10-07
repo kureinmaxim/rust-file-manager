@@ -188,6 +188,7 @@ async fn main() -> std::io::Result<()> {
                     .service(files::upload)
                     .service(files::delete_file)
                     .service(files::rename_file)
+                    .service(files::move_file)
                     .service(files::download)
                     .service(files::create_folder)
                     .service(files::rename_folder)

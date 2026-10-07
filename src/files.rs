@@ -621,6 +621,104 @@ pub async fn rename_file(
 }
 
 #[derive(serde::Deserialize)]
+pub struct MoveQuery {
+    /// Folder of the file now; empty = the category root.
+    #[serde(default)]
+    path: String,
+    #[serde(rename = "toScope")]
+    to_scope: String,
+    #[serde(rename = "toCategory")]
+    to_category: String,
+    /// Existing folder of the destination; empty = its category root.
+    #[serde(rename = "toPath", default)]
+    to_path: String,
+}
+
+fn zone_title(zone: Zone) -> &'static str {
+    match zone {
+        Zone::My => "Мои файлы",
+        Zone::Shared => "Общие файлы",
+    }
+}
+
+/// Move a file between zones (shared ↔ my), categories and folders. Like
+/// uploads it never overwrites: a taken name gets a `(1)` suffix. Anyone who
+/// can see a shared file may already delete it, so taking it into the own
+/// zone grants no new power.
+#[post("/move/{scope}/{category}/{filename}")]
+pub async fn move_file(
+    path: web::Path<(String, String, String)>,
+    query: web::Query<MoveQuery>,
+    session: Session,
+    config: web::Data<AppConfig>,
+) -> Result<HttpResponse, Error> {
+    let Some(user) = current_user(&session) else {
+        return Ok(unauthorized());
+    };
+    let (scope, category, file_name) = path.into_inner();
+    let source = match parse_folder(&query.path)
+        .and_then(|folder| target_path(&config, &scope, &user, &category, &folder, &file_name))
+    {
+        Ok(p) => p,
+        Err(resp) => return Ok(resp),
+    };
+    if !source.is_file() {
+        return Ok(not_found("Файл не найден"));
+    }
+    let (to_zone, to_folder) = match parse_zone(&query.to_scope)
+        .and_then(|zone| parse_folder(&query.to_path).map(|folder| (zone, folder)))
+    {
+        Ok(pair) => pair,
+        Err(resp) => return Ok(resp),
+    };
+    let name = source
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .to_string();
+    // Folder files are reached by exact name only (see read_folder).
+    if !to_folder.is_root() && exact_file_name(&name).is_err() {
+        return Ok(bad_request(
+            "Переименуйте файл перед переносом в папку: в имени лишние пробелы",
+        ));
+    }
+    // The category root is created on demand, as for uploads; a folder must exist.
+    let dest_dir = match folder_dir(
+        &config,
+        to_zone,
+        &user.username,
+        &query.to_category,
+        &to_folder,
+    ) {
+        Ok(dir) => dir,
+        Err(e) => return Ok(storage_error(e)),
+    };
+    if to_folder.is_root() {
+        fs::create_dir_all(&dest_dir)?;
+    } else if !dest_dir.is_dir() {
+        return Ok(not_found("Папка назначения не найдена"));
+    }
+    if source.parent() == Some(dest_dir.as_path()) {
+        return Ok(bad_request("Файл уже находится в этой папке"));
+    }
+    let moved = match storage::publish_file(&source, &dest_dir, &name) {
+        Ok(p) => p,
+        Err(e) => return Ok(storage_error(e.into())),
+    };
+    let final_name = moved.file_name().and_then(|n| n.to_str()).unwrap_or(&name);
+    let place = [zone_title(to_zone), query.to_category.as_str()]
+        .into_iter()
+        .chain(to_folder.segments().iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" › ");
+    tracing::info!(user = %user.username, from_scope = %scope, from_category = %category, from_folder = %query.path, to_scope = to_zone.as_str(), to_category = %query.to_category, to_folder = %to_folder, file = final_name, "file moved");
+    Ok(ApiResponse::ok(
+        format!("Файл перемещён в «{place}»: {final_name}"),
+        None,
+    ))
+}
+
+#[derive(serde::Deserialize)]
 pub struct NewFolderQuery {
     /// Parent folder; empty = the category root.
     #[serde(default)]

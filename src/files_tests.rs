@@ -71,6 +71,7 @@ impl Env {
                         .service(files::upload)
                         .service(files::delete_file)
                         .service(files::rename_file)
+                        .service(files::move_file)
                         .service(files::download)
                         .service(files::create_folder)
                         .service(files::rename_folder)
@@ -423,4 +424,177 @@ async fn private_folders_and_symlinks_stay_out_of_reach() {
     )
     .await;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+fn move_file(
+    scope: &str,
+    category: &str,
+    path: &str,
+    name: &str,
+    to: &[(&str, &str)],
+) -> test::TestRequest {
+    let mut params = vec![("path", path)];
+    params.extend_from_slice(to);
+    test::TestRequest::post().uri(&format!(
+        "/move/{scope}/{}/{}?{}",
+        enc(category),
+        enc(name),
+        query(&params)
+    ))
+}
+
+#[actix_web::test]
+async fn files_move_between_zones_and_folders_without_overwriting() {
+    let env = Env::new();
+    let app = env.app().await;
+    let anna = sign_in(&app, "anna").await;
+    let bob = sign_in(&app, "bob").await;
+    let shared = env.uploads().join("shared").join("Документы");
+    let mine = env.uploads().join("home").join("anna").join("Документы");
+    let to_my = [
+        ("toScope", "my"),
+        ("toCategory", "Документы"),
+        ("toPath", ""),
+    ];
+
+    // Shared → my: the file leaves the shared zone.
+    let (status, _) = call(&app, &anna, upload("shared", &[], "акт №1.pdf", b"OLD")).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = call(
+        &app,
+        &anna,
+        move_file("shared", "Документы", "", "акт №1.pdf", &to_my),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(fs::read(mine.join("акт №1.pdf")).unwrap(), b"OLD");
+    assert!(!shared.join("акт №1.pdf").exists());
+
+    // Back to shared, where a file with that name appeared meanwhile: suffix, no overwrite.
+    let (status, _) = call(&app, &anna, upload("shared", &[], "акт №1.pdf", b"NEW")).await;
+    assert_eq!(status, StatusCode::OK);
+    let to_shared = [
+        ("toScope", "shared"),
+        ("toCategory", "Документы"),
+        ("toPath", ""),
+    ];
+    let (status, body) = call(
+        &app,
+        &anna,
+        move_file("my", "Документы", "", "акт №1.pdf", &to_shared),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body["message"].as_str().unwrap().contains("акт №1(1).pdf"),
+        "{body}"
+    );
+    assert_eq!(fs::read(shared.join("акт №1.pdf")).unwrap(), b"NEW");
+    assert_eq!(fs::read(shared.join("акт №1(1).pdf")).unwrap(), b"OLD");
+
+    // Into an existing folder of my zone; a missing folder or the same place is refused.
+    let (status, _) = call(&app, &anna, new_folder("my", "Документы", "", "Архив")).await;
+    assert_eq!(status, StatusCode::OK);
+    let to_archive = [
+        ("toScope", "my"),
+        ("toCategory", "Документы"),
+        ("toPath", "Архив"),
+    ];
+    let (status, _) = call(
+        &app,
+        &anna,
+        move_file("shared", "Документы", "", "акт №1(1).pdf", &to_archive),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(mine.join("Архив").join("акт №1(1).pdf").is_file());
+    let missing = [
+        ("toScope", "my"),
+        ("toCategory", "Документы"),
+        ("toPath", "Нет"),
+    ];
+    let (status, _) = call(
+        &app,
+        &anna,
+        move_file("shared", "Документы", "", "акт №1.pdf", &missing),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!mine.join("Нет").exists());
+    let here = [
+        ("toScope", "shared"),
+        ("toCategory", "Документы"),
+        ("toPath", ""),
+    ];
+    let (status, _) = call(
+        &app,
+        &anna,
+        move_file("shared", "Документы", "", "акт №1.pdf", &here),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    for to in [
+        [
+            ("toScope", "home"),
+            ("toCategory", "Документы"),
+            ("toPath", ""),
+        ],
+        [
+            ("toScope", "my"),
+            ("toCategory", "../shared"),
+            ("toPath", ""),
+        ],
+        [
+            ("toScope", "my"),
+            ("toCategory", "Документы"),
+            ("toPath", "../../bob"),
+        ],
+    ] {
+        let (status, body) = call(
+            &app,
+            &anna,
+            move_file("shared", "Документы", "", "акт №1.pdf", &to),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{to:?}: {body}");
+    }
+    assert!(shared.join("акт №1.pdf").is_file());
+
+    // Another category works; Bob cannot reach Anna's private files.
+    let to_video = [("toScope", "my"), ("toCategory", "Видео"), ("toPath", "")];
+    let (status, _) = call(
+        &app,
+        &anna,
+        move_file("shared", "Документы", "", "акт №1.pdf", &to_video),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(env.uploads().join("home/anna/Видео/акт №1.pdf").is_file());
+    let to_bob = [("toScope", "my"), ("toCategory", "Видео"), ("toPath", "")];
+    let (status, _) = call(
+        &app,
+        &bob,
+        move_file("my", "Документы", "Архив", "акт №1(1).pdf", &to_bob),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(mine.join("Архив").join("акт №1(1).pdf").is_file());
+
+    // A planted symlink is not a destination.
+    let outside = env.dir.join("outside");
+    fs::create_dir_all(&outside).unwrap();
+    std::os::unix::fs::symlink(&outside, mine.join("link")).unwrap();
+    let to_link = [
+        ("toScope", "my"),
+        ("toCategory", "Документы"),
+        ("toPath", "link"),
+    ];
+    let (status, _) = call(
+        &app,
+        &anna,
+        move_file("my", "Документы", "Архив", "акт №1(1).pdf", &to_link),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
 }
