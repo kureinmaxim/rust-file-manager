@@ -13,6 +13,13 @@
 зарезервированные адреса. Рабочие домены, IP и ключи в репозиторий не
 вносятся.
 
+### Статус реализации
+
+| Часть | Статус |
+|---|---|
+| Бот TelegramOnly, этап 1 (`/files`, кнопка «Файлы», `/files_status`, `/files_invite`, `/files_bind`, клиент внутреннего API по §7.4) | ✅ готово, с юнит-тестами |
+| rust-file-manager, этапы 0–1 | ⏳ не начато: в среде разработки заблокирован `static.crates.io`, без зависимостей сборка и тесты Rust невозможны |
+
 ### Решения владельца (07.10.2026)
 
 | Вопрос | Решение | Где в плане |
@@ -786,6 +793,53 @@ HTTP; машиночитаемое поле `code` для ошибок, на к�
 
 Бот — доверенный компонент: `telegram_id` он берёт из апдейтов Telegram, и
 только после проверки service token FM принимает его.
+
+### 7.4. Контракт внутреннего API: этап 1 (JSON)
+
+Клиент на стороне бота уже реализован по этому контракту
+(`TelegramOnly/files_client.py`); Rust-сторона обязана его соблюдать.
+Каждый ответ — JSON с полем `success`; при ошибке есть `message` (текст для
+человека, без путей и секретов) и, где клиент реагирует, `code`.
+Неверный или отсутствующий service token → `401 {"success": false,
+"code": "unauthorized"}`.
+
+```text
+GET  /internal/v1/health
+  200 {"success": true, "version": "1.5.0"}
+
+GET  /internal/v1/status
+  200 {"success": true, "version": "1.5.0", "commit": "a1b2c3d",
+       "uptime_secs": 1036800,
+       "disk": {"total_bytes": 64424509440, "free_bytes": 19541180416},
+       "users": 4, "telegram_linked": 3,
+       "staging_bytes": 0, "trash_bytes": 1181116006, "active_shares": 14}
+
+GET  /internal/v1/tg-links
+  200 {"success": true,
+       "links": [{"telegram_id": 123456789, "username": "anna", "is_admin": true}]}
+
+GET  /internal/v1/resolve?telegram_id=123456789
+  200 {"success": true, "linked": true, "username": "anna", "is_admin": true}
+  200 {"success": true, "linked": false}
+
+POST /internal/v1/invites           {"telegram_id": 123456789}
+  200 {"success": true, "token": "<43 символа>", "expires_at": 1791972000,
+       "tg_url": "https://t.me/files_example_bot?startapp=inv_<token>",
+       "web_url": "https://files.example.com/register?token=<token>"}
+  403 {"success": false, "code": "not_admin", "message": "…"}
+
+POST /internal/v1/bind              {"admin_telegram_id": 1, "telegram_id": 2, "username": "bob"}
+  200 {"success": true, "message": "…", "username": "bob"}
+  403 code=not_admin · 404 code=no_user · 409 code=already_linked
+
+POST /internal/v1/unbind            {"admin_telegram_id": 1, "telegram_id": 2}
+  200 {"success": true, "message": "…", "username": "bob"}
+  403 code=not_admin · 404 code=not_linked
+```
+
+`not_admin` означает, что `telegram_id` (или `admin_telegram_id`) не
+привязан к администратору файлового менеджера; права админа бота
+TelegramOnly для FM ничего не значат.
 
 ---
 
