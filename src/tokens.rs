@@ -116,6 +116,10 @@ pub struct UrlClaims {
     pub n: String,
     pub d: Disposition,
     pub exp: u64,
+    /// Exchange owner: the link points into `exchange/<x>/<c>/<n>` instead of
+    /// a zone (then `z` and `p` are unused). Absent in older links.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<String>,
 }
 
 pub fn sign_url(keys: &TokenKeys, claims: &UrlClaims) -> String {
@@ -193,6 +197,7 @@ mod tests {
                 n: "a.jpg".into(),
                 d: Disposition::Inline,
                 exp: 1000,
+                x: None,
             },
         );
         assert!(verify_url(&k, &url, 999).is_some());

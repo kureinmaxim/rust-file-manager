@@ -890,3 +890,135 @@ async fn stale_staging_is_cleaned_up() {
     assert_eq!(cleanup_staging(&dir, std::time::Duration::ZERO), 1);
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[actix_web::test]
+async fn exchange_between_admin_and_one_user_over_the_api() {
+    const ADMIN_TG: i64 = 555;
+    let env = Env::new();
+    env.store.link_telegram("admin", "admin", ADMIN_TG).unwrap();
+    let app = env.app().await;
+    let admin = login(&app, ADMIN_TG).await;
+    let anna = login(&app, ANNA).await;
+    let bob = login(&app, BOB).await;
+    let get = |uri: &str, token: &str| authed(test::TestRequest::get().uri(uri), token);
+
+    let (status, overview) = send(&app, get("/api/v1/exchange", &admin)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(overview["role"], "admin");
+    let names: Vec<_> = overview["partners"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["username"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"anna") && names.contains(&"bob"));
+
+    // Admin → Anna through the chunked upload protocol.
+    let sent = upload(
+        &app,
+        &admin,
+        json!({ "scope": "exchange", "with": "anna", "name": "план #1.pdf" }),
+        b"PLAN",
+    )
+    .await;
+    assert_eq!(sent["direction"], "outgoing");
+    assert_eq!(sent["owner"], "anna");
+    // Nobody sends into someone else's exchange.
+    for (token, with) in [(&bob, "anna"), (&anna, "bob"), (&admin, "zed")] {
+        let (status, body) = send(
+            &app,
+            authed(test::TestRequest::post().uri("/api/v1/uploads"), token)
+                .set_json(json!({ "scope": "exchange", "with": with, "name": "x.pdf", "size": 1 })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{with}: {body}");
+    }
+
+    let (_, mine) = send(&app, get("/api/v1/exchange", &anna)).await;
+    assert_eq!(mine["role"], "user");
+    let incoming = &mine["incoming"][0];
+    assert_eq!(incoming["name"], "план #1.pdf");
+    assert_eq!(incoming["direction"], "incoming");
+    let id = incoming["id"].as_str().unwrap().to_string();
+    let (status, _) = send(&app, get("/api/v1/exchange/anna", &bob)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Bob cannot use Anna's item id in any way.
+    for req in [
+        test::TestRequest::post()
+            .uri(&format!("/api/v1/exchange/items/{id}/link"))
+            .set_json(json!({})),
+        test::TestRequest::post().uri(&format!("/api/v1/exchange/items/{id}/save")),
+        test::TestRequest::delete().uri(&format!("/api/v1/exchange/items/{id}")),
+    ] {
+        let (status, _) = send(&app, authed(req, &bob)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    // Anna downloads through a signed link and keeps a copy in her own files.
+    let (status, link) = send(
+        &app,
+        authed(
+            test::TestRequest::post().uri(&format!("/api/v1/exchange/items/{id}/link")),
+            &anna,
+        )
+        .set_json(json!({ "purpose": "download" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let url = link["url"].as_str().unwrap().to_string();
+    let resp = test::call_service(&app, test::TestRequest::get().uri(&url).to_request()).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(test::read_body(resp).await.as_ref(), b"PLAN");
+    let (status, saved) = send(
+        &app,
+        authed(
+            test::TestRequest::post().uri(&format!("/api/v1/exchange/items/{id}/save")),
+            &anna,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(saved["category"], "Документы");
+    let docs = list(
+        &app,
+        &anna,
+        "scope=my&category=%D0%94%D0%BE%D0%BA%D1%83%D0%BC%D0%B5%D0%BD%D1%82%D1%8B",
+    )
+    .await;
+    assert!(docs.iter().any(|i| i["name"] == "план #1.pdf"));
+
+    // Anna → admin; the admin sees it as incoming in Anna's exchange.
+    upload(
+        &app,
+        &anna,
+        json!({ "scope": "exchange", "name": "ответ.txt" }),
+        b"OK",
+    )
+    .await;
+    let (_, from_anna) = send(&app, get("/api/v1/exchange/anna", &admin)).await;
+    assert_eq!(from_anna["incoming"][0]["name"], "ответ.txt");
+    assert_eq!(from_anna["outgoing"][0]["name"], "план #1.pdf");
+
+    // Revoked sessions take signed exchange links with them.
+    env.store.bump_token_version("anna", "admin").unwrap();
+    let resp = test::call_service(&app, test::TestRequest::get().uri(&url).to_request()).await;
+    assert_eq!(resp.status(), StatusCode::GONE);
+
+    // The admin deletes the file sent to Anna: gone for both, Anna's copy stays.
+    let (status, _) = send(
+        &app,
+        authed(
+            test::TestRequest::delete().uri(&format!("/api/v1/exchange/items/{id}")),
+            &admin,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, after) = send(&app, get("/api/v1/exchange/anna", &admin)).await;
+    assert!(after["outgoing"].as_array().unwrap().is_empty());
+    assert!(env
+        .dir
+        .join("uploads/home/anna/Документы/план #1.pdf")
+        .is_file());
+}

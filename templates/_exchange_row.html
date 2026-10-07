@@ -1,0 +1,9 @@
+<li class="file-row" data-name="{{name}}" data-size="{{size_bytes}}" data-modified="{{modified}}">
+    <span class="file-icon" aria-hidden="true">FILE</span>
+    <div class="file-content"><a class="file-link" href="{{url}}" download>{{name}}</a><div class="file-meta"><span>{{size}}</span><time data-timestamp="{{modified}}"></time></div></div>
+    <div class="file-actions">
+        <a class="icon-button" href="{{url}}" download title="Скачать" aria-label="Скачать {{name}}"><svg class="icon" aria-hidden="true"><use href="#download"/></svg></a>
+        {{#if incoming}}<button class="icon-button" type="button" data-exchange-save data-url="{{url}}" data-file="{{name}}" title="Сохранить копию в мои файлы" aria-label="Сохранить {{name}} в мои файлы"><svg class="icon" aria-hidden="true"><use href="#copy"/></svg></button>{{/if}}
+        <button class="icon-button danger" type="button" data-exchange-delete data-url="{{url}}" data-file="{{name}}" title="Удалить из обмена" aria-label="Удалить {{name}} из обмена"><svg class="icon" aria-hidden="true"><use href="#trash"/></svg></button>
+    </div>
+</li>

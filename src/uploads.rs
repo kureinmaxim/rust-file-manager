@@ -26,6 +26,7 @@ use crate::config::AppConfig;
 use crate::paths::RelPath;
 use crate::reply::{self, now_secs};
 use crate::storage::{exact_file_name, folder_dir, StorageError, Zone, STAGING_DIR};
+use crate::users::UserStore;
 
 /// Unfinished uploads per user; more must be finished or cancelled first.
 const MAX_OPEN_UPLOADS: usize = 4;
@@ -68,6 +69,10 @@ struct UploadMeta {
     name: String,
     size: u64,
     created_at: u64,
+    /// «Обмен»: owner of the exchange this upload goes to (then `scope`,
+    /// `category` and `path` are unused).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    exchange: Option<String>,
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -111,10 +116,16 @@ fn offset(part: &Path) -> u64 {
 }
 
 fn describe(meta: &UploadMeta, part: &Path) -> serde_json::Value {
-    json!({
-        "id": meta.id, "name": meta.name, "size": meta.size, "offset": offset(part),
-        "scope": meta.scope, "category": meta.category, "path": meta.path,
-    })
+    match &meta.exchange {
+        Some(owner) => json!({
+            "id": meta.id, "name": meta.name, "size": meta.size, "offset": offset(part),
+            "scope": "exchange", "with": owner, "category": "", "path": "",
+        }),
+        None => json!({
+            "id": meta.id, "name": meta.name, "size": meta.size, "offset": offset(part),
+            "scope": meta.scope, "category": meta.category, "path": meta.path,
+        }),
+    }
 }
 
 #[derive(Deserialize)]
@@ -126,6 +137,10 @@ struct CreateBody {
     path: String,
     name: String,
     size: u64,
+    /// For `scope: "exchange"`: whose exchange (the admin names a user; a user
+    /// may leave it empty for their own).
+    #[serde(default)]
+    with: String,
 }
 
 #[post("/uploads")]
@@ -133,14 +148,21 @@ async fn create(
     body: web::Json<CreateBody>,
     user: web::ReqData<ApiUser>,
     config: web::Data<AppConfig>,
+    store: web::Data<UserStore>,
 ) -> HttpResponse {
     let result = (|| -> Result<HttpResponse, StorageError> {
-        let zone = Zone::parse(&body.scope).ok_or(StorageError::Zone)?;
         let name = exact_file_name(&body.name)?.to_string();
-        let category = upload_category(body.category.as_deref(), &name)?;
-        let rel = RelPath::parse(&body.path).map_err(StorageError::Path)?;
-        // Validate the destination now (symlinks, category), not only at the end.
-        folder_dir(&config, zone, &user.username, &category, &rel)?;
+        let (zone, category, rel, exchange) = if body.scope == "exchange" {
+            let owner = crate::exchange::check_upload_target(&store, &user, &body.with)?;
+            (Zone::My, String::new(), RelPath::root(), Some(owner))
+        } else {
+            let zone = Zone::parse(&body.scope).ok_or(StorageError::Zone)?;
+            let category = upload_category(body.category.as_deref(), &name)?;
+            let rel = RelPath::parse(&body.path).map_err(StorageError::Path)?;
+            // Validate the destination now (symlinks, category), not only at the end.
+            folder_dir(&config, zone, &user.username, &category, &rel)?;
+            (zone, category, rel, None)
+        };
         if body.size > config.max_chunked_file_size {
             return Ok(reply::error(
                 StatusCode::PAYLOAD_TOO_LARGE,
@@ -178,6 +200,7 @@ async fn create(
             name,
             size: body.size,
             created_at: now_secs(),
+            exchange,
         };
         fs::OpenOptions::new()
             .write(true)
@@ -320,6 +343,7 @@ async fn complete(
     id: web::Path<String>,
     user: web::ReqData<ApiUser>,
     config: web::Data<AppConfig>,
+    store: web::Data<UserStore>,
     locks: web::Data<UploadLocks>,
 ) -> HttpResponse {
     let Some((meta, part)) = load(&config, &user, &id) else {
@@ -335,6 +359,19 @@ async fn complete(
     let current = offset(&part);
     if current != meta.size {
         return offset_mismatch(current);
+    }
+    if let Some(owner) = &meta.exchange {
+        return match crate::exchange::finish_upload(
+            &config, &store, &user, owner, &part, &meta.name,
+        ) {
+            Ok(item) => {
+                let _ =
+                    fs::remove_file(user_dir(&config, &user.username).join(format!("{id}.json")));
+                tracing::info!(user = %user.username, exchange = %owner, size = meta.size, "file sent to exchange (Mini App)");
+                reply::ok(json!({ "item": item }))
+            }
+            Err(e) => reply::storage(e),
+        };
     }
     let rel = match RelPath::parse(&meta.path) {
         Ok(r) => r,

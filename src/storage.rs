@@ -549,6 +549,21 @@ impl Drop for PendingUpload {
     }
 }
 
+/// A second name for `source` in `dir` (hard link), never overwriting: the
+/// copy is instant and takes no extra space. Safe because files here are
+/// never modified in place — uploads, renames and moves all create new names.
+pub fn link_file(source: &Path, dir: &Path, name: &str) -> io::Result<PathBuf> {
+    for candidate in name_candidates(name) {
+        let target = dir.join(candidate);
+        match fs::hard_link(source, &target) {
+            Ok(()) => return Ok(target),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!("exhausted filename suffixes")
+}
+
 /// Move a finished file into `dir` without ever overwriting: a hard link to
 /// the first free candidate name is atomic and fails if the name is taken,
 /// then the source is removed. Returns the final path.

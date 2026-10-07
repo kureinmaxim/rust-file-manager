@@ -5,6 +5,7 @@ mod api_tests;
 mod auth;
 mod categories;
 mod config;
+mod exchange;
 mod files;
 #[cfg(test)]
 mod files_tests;
@@ -189,6 +190,10 @@ async fn main() -> std::io::Result<()> {
                     .service(files::delete_file)
                     .service(files::rename_file)
                     .service(files::move_file)
+                    .service(exchange::web_upload)
+                    .service(exchange::web_download)
+                    .service(exchange::web_delete)
+                    .service(exchange::web_save)
                     .service(files::download)
                     .service(files::create_folder)
                     .service(files::rename_folder)
