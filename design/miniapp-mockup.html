@@ -405,6 +405,56 @@ button.row:active, .tap:active { transform: scale(.985); }
 .audit li + li { border-top: .5px solid var(--tg-separator); }
 .audit time { color: var(--tg-hint); font-variant-numeric: tabular-nums; }
 
+/* folders */
+.ftile.folder .icon, .cell.folder .icon { fill: color-mix(in srgb, var(--k) 30%, transparent); }
+.crumbs { margin: 0 14px 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 14px; color: var(--tg-hint); }
+.crumbs button { border: 0; background: none; padding: 4px 0; color: var(--tg-link); font-size: 14px; min-height: 32px; }
+.crumbs b { color: var(--tg-text); font-weight: 600; overflow-wrap: anywhere; }
+
+/* slash command suggestions */
+.cmds { flex-shrink: 0; background: var(--tg-header-bg); border-top: .5px solid var(--tg-separator); max-height: 240px; overflow-y: auto; }
+.cmds button { width: 100%; display: flex; gap: 10px; align-items: baseline; padding: 9px 14px; border: 0; background: transparent; text-align: left; color: var(--tg-text); font-size: 15px; }
+.cmds button + button, .cmds p { border-top: .5px solid var(--tg-separator); }
+.cmds b { font-weight: 600; color: var(--tg-link); white-space: nowrap; }
+.cmds span { color: var(--tg-hint); font-size: 13.5px; }
+.cmds p { margin: 0; padding: 8px 14px; font-size: 12.5px; color: var(--tg-hint); }
+
+/* public link page: the recipient's ordinary browser, product brand instead of Telegram theme */
+.screen.browser .statusbar { background: var(--sh-surface); color: var(--sh-text); }
+.br-bar { flex-shrink: 0; padding: 4px 12px 10px; background: var(--sh-surface); border-bottom: 1px solid var(--sh-line); display: flex; gap: 8px; align-items: center; }
+.br-url { flex: 1; min-width: 0; height: 36px; border-radius: 10px; background: var(--sh-code); color: var(--sh-text); display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 14px; white-space: nowrap; overflow: hidden; }
+.br-url .icon { width: 14px; height: 14px; color: var(--sh-brand); }
+.br-btn { width: 36px; height: 36px; border: 0; border-radius: 10px; background: transparent; color: var(--sh-muted); display: grid; place-items: center; }
+.br-btn .icon { width: 20px; height: 20px; }
+.content.pubc { background: var(--sh-bg); color: var(--sh-text); padding: 16px 14px 34px; }
+.pub { display: grid; gap: 14px; }
+.pub-brand { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.pub-logo { width: 28px; height: 28px; border-radius: 8px; background: var(--sh-brand); color: var(--sh-surface); display: grid; place-items: center; }
+.pub-logo .icon { width: 16px; height: 16px; }
+.pub-host { margin-left: auto; font: 12px/1 var(--mono); color: var(--sh-muted); }
+.pub-card { background: var(--sh-surface); border: 1px solid var(--sh-line); border-radius: 16px; padding: 18px; display: grid; gap: 14px; }
+.pub-card p { margin: 0; }
+.pub-head { display: grid; grid-template-columns: 52px 1fr; gap: 12px; align-items: center; }
+.pub-head .ftile { width: 52px; height: 52px; border-radius: 13px; }
+.pub-who { font-size: 13px; color: var(--sh-muted); }
+.pub-card h2 { margin: 2px 0; font-size: 20px; line-height: 1.2; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.pub-card small { color: var(--sh-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.pub-btn { min-height: 46px; border: 0; border-radius: 11px; background: var(--sh-brand); color: var(--sh-surface); font-weight: 600; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; }
+.pub-btn .icon { width: 18px; height: 18px; }
+.pub-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.pub-list li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--sh-line); min-width: 0; }
+.pub-list .ftile { width: 36px; height: 36px; border-radius: 9px; }
+.pub-list .ftile .icon { width: 18px; height: 18px; }
+.pub-list .nm { flex: 1; min-width: 0; font-size: 14px; overflow-wrap: anywhere; border: 0; background: none; padding: 0; text-align: left; color: var(--sh-text); }
+.pub-list .nm small { display: block; font-size: 12px; }
+.pub-dl { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--sh-line); background: transparent; color: var(--sh-brand); display: grid; place-items: center; flex-shrink: 0; }
+.pub-dl .icon { width: 18px; height: 18px; }
+.pub-foot { font-size: 13px; color: var(--sh-muted); }
+.pub-legal { margin: 0; text-align: center; font-size: 12px; color: var(--sh-muted); }
+.pub-ic { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--sh-brand-soft); color: var(--sh-brand); }
+.pub-label { font-size: 13px; color: var(--sh-muted); margin-bottom: -8px; }
+.pub-input { width: 100%; height: 44px; border-radius: 10px; border: 1px solid var(--sh-line); background: var(--sh-bg); color: var(--sh-text); padding: 0 12px; font-size: 16px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -587,13 +637,38 @@ const FILES = {
     { id: 26, name: 'Фильм про лето.mkv', cat: 'Видео', size: '2,1 ГБ', when: '30 сен', group: 'Ранее', ph: 'ph6', dur: '1:32:10', by: 'bob' },
   ],
 };
+const FOLDERS = {
+  my: [
+    { id: 'f1', name: 'Ремонт кухни', cat: 'Документы', files: 12, size: '46 МБ' },
+    { id: 'f2', name: 'Сканы документов', cat: 'Документы', files: 8, size: '14 МБ' },
+    { id: 'f3', name: 'Сочи 2026', cat: 'Фото', files: 86, size: '312 МБ' },
+    { id: 'f4', name: 'vps-main', cat: 'Бэкапы', sub: 'Серверы', files: 14, size: '9,8 ГБ' },
+  ],
+  shared: [
+    { id: 'f5', name: 'Свадьба Бориса', cat: 'Фото', files: 401, size: '2,1 ГБ', by: 'bob' },
+    { id: 'f6', name: 'Дача', cat: 'Документы', files: 5, size: '3 МБ', by: 'sergey' },
+  ],
+};
+const KITCHEN = 'Мои файлы › Документы › Ремонт кухни';
+const FOLDER_FILES = [
+  { id: 41, name: 'Смета кухни v3.xlsx', cat: 'Документы', ext: 'XLS', size: '212 КБ', when: 'сегодня, 10:20', where: KITCHEN },
+  { id: 42, name: 'План кухни.pdf', cat: 'Документы', ext: 'PDF', size: '2,3 МБ', when: '5 окт', where: KITCHEN, link: true },
+  { id: 43, name: 'IMG_4808.jpg', cat: 'Фото', size: '3,1 МБ', when: '5 окт', ph: 'ph3', where: KITCHEN },
+  { id: 44, name: 'Договор с подрядчиком.pdf', cat: 'Документы', ext: 'PDF', size: '640 КБ', when: '1 окт', where: KITCHEN },
+  { id: 45, name: 'Чек, плитка 03.10.pdf', cat: 'Документы', ext: 'PDF', size: '180 КБ', when: '3 окт', where: KITCHEN + ' › Чеки' },
+  { id: 46, name: 'Чек, смеситель.jpg', cat: 'Фото', size: '1,2 МБ', when: '2 окт', ph: 'ph5', where: KITCHEN + ' › Чеки' },
+];
+const INSIDE = {
+  f1: { folders: [{ id: 'f1a', name: 'Чеки', cat: 'Документы', files: 9, size: '4 МБ' }], files: [41, 42, 43, 44] },
+  f1a: { folders: [], files: [45, 46] },
+};
 const CHIPS = {
   my: [['Все', 214], ['Фото', 128], ['Документы', 46], ['Видео', 12], ['Бэкапы', 14], ['Программы', 9], ['Другие', 5]],
   shared: [['Все', 532], ['Фото', 401], ['Документы', 77], ['Видео', 31], ['Бэкапы', 3], ['Программы', 12], ['Другие', 8]],
 };
 
 const S = {
-  stack: ['home'], zone: 'my', cat: 'Все', view: 'list', q: '', selecting: false, sel: new Set(),
+  stack: ['home'], zone: 'my', cat: 'Все', view: 'list', q: '', selecting: false, sel: new Set(), path: [], pubLocked: true, slash: false,
   file: 2, shareTab: 'link', expiry: '7 дней', pass: false, viewOnly: false, notify: true, limit: 10, linkMade: false,
   members: new Set(['bob']), linksTab: 'links', trashZone: 'my', edDirty: false, edVersion: 3, wrap: false,
   linkMode: 'account', chatStep: 0, compress: true,
@@ -615,7 +690,14 @@ const S = {
     ],
   },
 };
-const allFiles = () => [...FILES.my, ...FILES.shared];
+const allFiles = () => [...FILES.my, ...FILES.shared, ...FOLDER_FILES];
+const allFolders = () => [...FOLDERS.my, ...FOLDERS.shared, ...Object.values(INSIDE).flatMap(x => x.folders)];
+const curFolder = () => S.path[S.path.length - 1];
+function folderContents(fo) {
+  if (!INSIDE[fo.id]) INSIDE[fo.id] = { folders: [], files: fo.cat === 'Фото' ? [1, 7, 8, 11, 14] : fo.files ? [2, 6, 9] : [] };
+  const c = INSIDE[fo.id];
+  return { folders: c.folders, files: c.files.map(fileById) };
+}
 const fileById = (id) => allFiles().find(f => f.id === id);
 
 /* ---------- telegram call log ---------- */
@@ -716,23 +798,25 @@ const SCREENS = {
   },
 
   browse: {
-    nav: 'Категория', stage: 'Этап 1–2', get title() { return S.zone === 'my' ? 'Мои файлы' : 'Общие файлы'; }, get sub() { return S.cat === 'Все' ? 'все категории' : S.cat; },
+    nav: 'Категория и папки', stage: 'Этап 1–2',
+    get title() { return S.path.length ? curFolder().name : (S.zone === 'my' ? 'Мои файлы' : 'Общие файлы'); },
+    get sub() { if (S.path.length) { const r = S.path[0]; return `${S.zone === 'my' ? 'Мои' : 'Общие'} · ${r.sub ? 'Бэкапы › ' + r.sub : r.cat}`; } return S.cat === 'Все' ? 'все категории' : S.cat; },
     notes: {
       title: 'Категория: список и сетка',
-      text: 'Переключатель зоны, чипы категорий со счётчиками, живой поиск с подсветкой, сортировка и вид «список/сетка». «Выбрать» — режим массовых операций: нижняя кнопка превращается в «Действия с N файлами». Попробуйте ввести «img» в поиск.',
+      text: 'Переключатель зоны, чипы категорий, живой поиск с подсветкой, сортировка и вид «список/сетка». Папки идут первыми; внутри папки — «хлебные крошки», «Назад» поднимается на уровень выше, «+ Папка» создаёт новую. Откройте «Ремонт кухни», затем «Чеки». «Выбрать» включает массовые операции.',
       tg: ['BackButton', 'HapticFeedback.selectionChanged', 'CloudStorage: вид и сортировка', 'MainButton (режим выбора)'],
-      api: ['<b>GET</b> /api/v1/files?scope=my&category=Фото&q=img&sort=mtime&order=desc&limit=100', '<b>POST</b> /api/v1/files/batch {op, items, target}', '<b>POST</b> /api/v1/files/{id}/link {purpose:"inline"} — миниатюры'],
+      api: ['<b>GET</b> /api/v1/files?scope=my&category=Документы&path=Ремонт кухни&sort=mtime', '<b>POST</b> /api/v1/folders {scope, category, path, name}', '<b>POST</b> /api/v1/files/batch {op, items, target}', '<b>POST</b> /api/v1/files/{id}/link {purpose:"inline"} — миниатюры'],
     },
     main: () => S.selecting
       ? { text: S.sel.size ? `Действия с ${S.sel.size} ${plural(S.sel.size, 'файлом', 'файлами', 'файлами')}` : 'Выберите файлы', disabled: !S.sel.size, on: () => popup({ title: `${S.sel.size} ${plural(S.sel.size, 'файл', 'файла', 'файлов')}`, message: 'Скачать ZIP, переместить, поделиться или отправить в корзину.', buttons: [{ text: 'В корзину', type: 'destructive', on: () => { toast('Перемещено в корзину'); S.sel.clear(); S.selecting = false; render(); } }, { text: 'Скачать ZIP', on: () => { tg('WebApp.downloadFile({url: "/d/zip/…", file_name: "files.zip"})'); toast('Готовим архив…'); } }] }) }
-      : { text: 'Загрузить сюда', on: () => go('uploads') },
+      : { text: S.path.length ? 'Загрузить в эту папку' : 'Загрузить сюда', on: () => go('uploads') },
     render() {
       const chips = CHIPS[S.zone].map(([n, c]) => `<button class="chip tap" type="button" data-act="cat" data-arg="${n}" aria-pressed="${S.cat === n}">${n !== 'Все' ? `<i style="--k:${CAT[n].k}"></i>` : ''}${n}<small>${c}</small></button>`).join('');
       return `
       <div class="seg" role="group" aria-label="Зона"><button type="button" data-act="zone" data-arg="my" aria-pressed="${S.zone === 'my'}">Мои</button><button type="button" data-act="zone" data-arg="shared" aria-pressed="${S.zone === 'shared'}">Общие</button></div>
-      <div class="search">${ic('search')}<input id="q" type="search" placeholder="Поиск по имени" value="${esc(S.q)}" aria-label="Поиск по имени файла"></div>
-      <div class="chips">${chips}</div>
-      <div class="toolbar"><button class="tbtn" type="button" data-act="toast" data-arg="Сортировка: имя · размер · дата">${ic('sort')}По дате ↓</button>
+      <div class="search">${ic('search')}<input id="q" type="search" placeholder="${S.path.length ? 'Поиск в этой папке' : 'Поиск по имени'}" value="${esc(S.q)}" aria-label="Поиск по имени файла или папки"></div>
+      ${S.path.length ? crumbs() : `<div class="chips">${chips}</div>`}
+      <div class="toolbar"><div class="iconbtns"><button class="tbtn" type="button" data-act="toast" data-arg="Сортировка: имя · размер · дата">${ic('sort')}По дате</button><button class="tbtn" type="button" data-act="newfolder">${ic('plus')}Папка</button></div>
         <div class="iconbtns"><button class="tbtn" type="button" data-act="select">${S.selecting ? 'Готово' : 'Выбрать'}</button>
         <button class="ib" type="button" data-act="view" data-arg="list" aria-pressed="${S.view === 'list'}" aria-label="Списком">${ic('list')}</button>
         <button class="ib" type="button" data-act="view" data-arg="grid" aria-pressed="${S.view === 'grid'}" aria-label="Сеткой">${ic('grid')}</button></div></div>
@@ -751,7 +835,7 @@ const SCREENS = {
     main: () => ({ text: fileById(S.file).text ? 'Открыть в редакторе' : 'Открыть', on: () => openFile(S.file) }),
     renderSheet() {
       const f = fileById(S.file);
-      const where = `${FILES.my.includes(f) ? 'Мои файлы' : 'Общие'} › ${f.sub ? 'Бэкапы › ' + f.sub : f.cat}`;
+      const where = f.where || `${FILES.my.includes(f) ? 'Мои файлы' : 'Общие'} › ${f.sub ? 'Бэкапы › ' + f.sub : f.cat}`;
       return `
       <div class="fhead">${ftile(f)}<div><b>${esc(f.name)}</b><small>${f.size} · изменён ${f.when}</small></div></div>
       <div class="actions">
@@ -843,7 +927,8 @@ const SCREENS = {
       <p class="group-title"><span>Куда</span></p>
       <div class="seg" role="group" aria-label="Зона загрузки"><button type="button" aria-pressed="true">Мои</button><button type="button" data-act="toast" data-arg="Загрузка в «Общие файлы»" aria-pressed="false">Общие</button></div>
       <div class="group">
-        <button class="row tap" type="button" data-act="toast" data-arg="Категории: авто · Фото · Документы · Видео · Программы · Другие · Бэкапы › Серверы / HA / Project"><span class="tile" style="background:var(--tg-button)">${ic('folder')}</span><span class="rt"><b>Категория</b></span><span class="rv">авто по типу ${ic('right', 'icon chev')}</span></button>
+        <button class="row tap" type="button" data-act="toast" data-arg="Категория и папка: авто по типу · Документы › Ремонт кухни › Чеки · Бэкапы › Серверы …"><span class="tile" style="background:var(--tg-button)">${ic('folder')}</span><span class="rt"><b>Категория и папка</b></span><span class="rv">авто по типу ${ic('right', 'icon chev')}</span></button>
+        <button class="row tap" type="button" data-act="toast" data-arg="Выбор папки на компьютере: подпапки сохранятся"><span class="tile" style="background:var(--c-backup)">${ic('upload')}</span><span class="rt"><b>Загрузить папку целиком</b><small>Telegram Desktop и Web, структура сохранится</small></span>${ic('right', 'icon chev')}</button>
         <button class="row tap" type="button" data-act="flip" data-arg="compress"><span class="tile" style="background:var(--c-photo)">${ic('image')}</span><span class="rt"><b>Сжимать фото до 2560 px</b></span>${switchEl(S.compress)}</button>
       </div>
       <p class="group-title"><span>Очередь</span><button type="button" data-act="toast" data-arg="Очередь очищена от готовых">Очистить готовые</button></p>
@@ -992,12 +1077,48 @@ const SCREENS = {
     },
   },
 
+  public: {
+    nav: 'Публичная ссылка', stage: 'Этап 3', browser: true, root: true,
+    notes: {
+      title: 'Публичная ссылка на папку',
+      text: 'Так ссылку видит человек без аккаунта: в обычном браузере, не в Telegram, в фирменном стиле файлового менеджера. Ссылка на папку открывает только её содержимое: внутрь можно, выше — нельзя. Файл скачивается по одному или вся папка одним ZIP. Пароль, срок и лимит скачиваний задаёт владелец. Введите пароль и нажмите «Открыть».',
+      tg: [],
+      api: ['<b>GET</b> /s/&lt;token&gt;[?path=Чеки]', '<b>POST</b> /s/&lt;token&gt;/unlock {password} — 5 попыток за 15 мин', '<b>GET</b> /s/&lt;token&gt;/download?path=… · <b>GET</b> /s/&lt;token&gt;/zip', 'Referrer-Policy: no-referrer · X-Robots-Tag: noindex · строгий CSP'],
+    },
+    main: () => null,
+    render() {
+      const brand = `<div class="pub-brand"><span class="pub-logo">${ic('folder')}</span><b>Файлы</b><span class="pub-host">files.example.com</span></div>`;
+      if (S.pubLocked) {
+        return `<div class="pub">${brand}<div class="pub-card">
+          <span class="pub-ic">${ic('lock')}</span>
+          <h2>Ссылка защищена паролем</h2>
+          <p class="pub-who">Анна поделилась с вами папкой. Введите пароль, который она вам сообщила.</p>
+          <label class="pub-label" for="pubpass">Пароль</label>
+          <input class="pub-input" id="pubpass" type="password" autocomplete="off" value="kitchen-2026">
+          <button class="pub-btn" type="button" data-act="unlock">Открыть</button>
+          <small>После 5 неверных попыток ввод блокируется на 15 минут.</small>
+        </div><p class="pub-legal">Файлы передаются по защищённому соединению (HTTPS).</p></div>`;
+      }
+      const files = INSIDE.f1.files.map(fileById);
+      const row = f => { const c = CAT[f.cat]; return `<li>${f.ph ? `<span class="ftile photo ${f.ph}" style="--k:${c.k}"></span>` : `<span class="ftile" style="--k:${c.k}">${ic(c.icon)}</span>`}<span class="nm">${esc(f.name)}<small>${f.size}</small></span><button class="pub-dl" type="button" data-act="pubdl" data-arg="${f.id}" aria-label="Скачать ${esc(f.name)}">${ic('download')}</button></li>`; };
+      return `<div class="pub">${brand}<div class="pub-card">
+        <div class="pub-head"><span class="ftile folder" style="--k:var(--c-doc)">${ic('folder')}</span><div><p class="pub-who">Анна поделилась папкой</p><h2>Ремонт кухни</h2><small>12 файлов · 46 МБ</small></div></div>
+        <button class="pub-btn" type="button" data-act="pubzip">${ic('download')}Скачать всё · ZIP, 46 МБ</button>
+        <ul class="pub-list">
+          <li><span class="ftile folder" style="--k:var(--c-doc)">${ic('folder')}</span><button class="nm" type="button" data-act="toast" data-arg="Переход в «Чеки» — только внутри общей папки">Чеки<small>9 файлов · 4 МБ</small></button>${ic('right', 'icon chev')}</li>
+          ${files.map(row).join('')}
+        </ul>
+        <p class="pub-foot">Ссылка действует до 14 октября · осталось 7 скачиваний из 10.</p>
+      </div><p class="pub-legal">Страница не индексируется поисковиками. Если вы не ждали эту ссылку, просто закройте её.</p></div>`;
+    },
+  },
+
   chat: {
     nav: 'Чат с ботом', stage: 'Этап 1 · 3', chat: true, root: true,
     notes: {
       title: 'Чат с ботом',
-      text: 'Слева от поля ввода — кнопка меню «Файлы»: она открывает мини-приложение. Файл, присланный боту, сохраняется в хранилище после выбора «Мои / Общие». Сюда же приходят уведомления с кнопкой, которая открывает нужное место в приложении. Нажмите «Мои».',
-      tg: ['setChatMenuButton(MenuButtonWebApp «Файлы»)', 'InlineKeyboardButton(web_app=…)', 'CallbackQuery fm:save:…', 'getFile → до 20 МБ'],
+      text: 'Слева от поля ввода — кнопка «Файлы» вместо «Меню»: она у всех привязанных пользователей, включая админов. Список команд не пропал: нажмите на поле ввода — ввод «/» покажет команды именно этого пользователя (у админа — расширенный список). Файл, присланный боту, сохраняется после выбора «Мои / Общие / Папка…». Нажмите «Мои».',
+      tg: ['setChatMenuButton(chat_id, MenuButtonWebApp «Файлы»)', 'setMyCommands по областям — без изменений', 'InlineKeyboardButton(web_app=…)', 'CallbackQuery fm:save:… / fm:dir:…', 'getFile → до 20 МБ'],
       api: ['бот → <b>POST</b> /internal/v1/files?telegram_id&scope&name (поток)', 'бот → <b>GET</b> /internal/v1/events?after&wait=25', 'бот → <b>POST</b> /internal/v1/events/{id}/ack'],
     },
     main: () => null,
@@ -1021,33 +1142,52 @@ const EDITOR_TEXT = `services:
       retries: 3`;
 
 /* ---------- list rendering ---------- */
+const match = (name) => !S.q || name.toLowerCase().includes(S.q.toLowerCase());
+function visibleFolders() {
+  const list = S.path.length ? folderContents(curFolder()).folders : FOLDERS[S.zone].filter(f => S.cat === 'Все' || f.cat === S.cat);
+  return list.filter(f => match(f.name));
+}
 function visibleFiles() {
-  return FILES[S.zone].filter(f => (S.cat === 'Все' || f.cat === S.cat) && (!S.q || f.name.toLowerCase().includes(S.q.toLowerCase())));
+  const list = S.path.length ? folderContents(curFolder()).files : FILES[S.zone].filter(f => S.cat === 'Все' || f.cat === S.cat);
+  return list.filter(f => match(f.name));
+}
+function crumbs() {
+  const root = S.path[0];
+  const cat = root.sub ? `Бэкапы › ${root.sub}` : root.cat;
+  return `<nav class="crumbs" aria-label="Путь"><button type="button" data-act="crumb" data-arg="-1">${cat}</button>${S.path.map((f, i) => i < S.path.length - 1 ? `<span>›</span><button type="button" data-act="crumb" data-arg="${i}">${esc(f.name)}</button>` : `<span>›</span><b>${esc(f.name)}</b>`).join('')}</nav>`;
+}
+function folderRow(fo) {
+  const c = CAT[fo.cat];
+  const loc = fo.sub ? `Бэкапы › ${fo.sub}` : fo.cat;
+  return `<button class="row wide tap" type="button" data-act="enter" data-arg="${fo.id}"><span class="ftile folder" style="--k:${c.k}">${ic('folder')}</span><span class="rt"><b>${hl(fo.name)}</b><small>${fo.files} ${plural(fo.files, 'файл', 'файла', 'файлов')} · ${fo.size}${!S.path.length && S.cat === 'Все' ? ' · ' + loc : ''}${fo.by ? ' · ' + fo.by : ''}</small></span>${ic('right', 'icon chev')}</button>`;
 }
 function renderList() {
+  const folders = visibleFolders();
   const items = visibleFiles();
-  if (!items.length) return `<div class="group"><div class="empty-note">Ничего не найдено по «${esc(S.q)}».<br>Поиск идёт по имени во всех категориях зоны.</div></div>`;
+  if (!items.length && !folders.length) return `<div class="group"><div class="empty-note">${S.q ? `Ничего не найдено по «${esc(S.q)}».<br>Поиск идёт по именам файлов и папок.` : 'Папка пуста.<br>Загрузите сюда файлы или создайте подпапку.'}</div></div>`;
   if (S.view === 'grid') {
-    return `<div class="grid">${items.map(f => {
+    const fcells = folders.map(fo => `<button class="cell folder tap" type="button" data-act="enter" data-arg="${fo.id}" style="--k:${CAT[fo.cat].k}" aria-label="Папка ${esc(fo.name)}">${ic('folder')}<span class="cname">${esc(fo.name)}</span></button>`).join('');
+    return `<div class="grid">${fcells}${items.map(f => {
       const c = CAT[f.cat];
       const chk = S.selecting ? `<span class="check ${S.sel.has(f.id) ? 'on' : ''}" style="top:6px;right:6px;margin:0;background:${S.sel.has(f.id) ? '' : 'rgba(0,0,0,.25)'};border-color:#fff">${S.sel.has(f.id) ? ic('check') : ''}</span>` : '';
       return `<button class="cell tap ${f.ph || ''}" type="button" data-act="pick" data-arg="${f.id}" style="--k:${c.k}" aria-label="${esc(f.name)}">${f.ph ? '' : ic(f.icon || c.icon)}${f.ph ? (f.dur ? `<span class="dur">${f.dur}</span>` : '') : `<span class="cname">${esc(f.name)}</span>`}${chk}</button>`;
     }).join('')}</div>`;
   }
+  const fhtml = folders.length ? `<p class="group-title"><span>Папки</span></p><div class="group">${folders.map(folderRow).join('')}</div>` : '';
   const groups = {};
-  items.forEach(f => (groups[f.group] ||= []).push(f));
-  return Object.entries(groups).map(([g, fs]) => `<p class="group-title"><span>${g}</span></p><div class="group">${fs.map(fileRow).join('')}</div>`).join('');
+  items.forEach(f => (groups[S.path.length ? 'Файлы' : f.group] ||= []).push(f));
+  return fhtml + Object.entries(groups).map(([g, fs]) => `<p class="group-title"><span>${g}</span></p><div class="group">${fs.map(fileRow).join('')}</div>`).join('');
 }
 
 /* ---------- navigation ---------- */
-const PATHS = { home: ['home'], browse: ['home', 'browse'], file: ['home', 'browse', 'file'], viewer: ['home', 'browse', 'viewer'], editor: ['home', 'browse', 'editor'], uploads: ['home', 'uploads'], share: ['home', 'browse', 'file', 'share'], links: ['home', 'links'], trash: ['home', 'trash'], admin: ['home', 'admin'], link: ['link'], chat: ['chat'] };
+const PATHS = { public: ['public'], home: ['home'], browse: ['home', 'browse'], file: ['home', 'browse', 'file'], viewer: ['home', 'browse', 'viewer'], editor: ['home', 'browse', 'editor'], uploads: ['home', 'uploads'], share: ['home', 'browse', 'file', 'share'], links: ['home', 'links'], trash: ['home', 'trash'], admin: ['home', 'admin'], link: ['link'], chat: ['chat'] };
 const cur = () => S.stack[S.stack.length - 1];
 function nav(name) {
   if (name === 'file' || name === 'share') S.file = S.file || 2;
   if (name === 'viewer') S.file = 1;
   if (name === 'editor') S.file = 3;
   S.stack = [...PATHS[name]];
-  S.selecting = false; S.sel.clear();
+  S.selecting = false; S.sel.clear(); S.path = []; S.slash = false;
   render();
   logScreen();
 }
@@ -1056,6 +1196,7 @@ function back() {
   if (cur() === 'editor' && S.edDirty) {
     return popup({ title: 'Закрыть без сохранения?', message: 'Изменения в docker-compose.yml пропадут.', buttons: [{ text: 'Остаться' }, { text: 'Закрыть', type: 'destructive', on: () => { S.edDirty = false; S.edText = null; S.stack.pop(); render(); } }] });
   }
+  if (cur() === 'browse' && S.path.length) { S.path.pop(); S.q = ''; tg('BackButton.onClick → на уровень выше'); render(); return; }
   if (S.stack.length > 1) { S.stack.pop(); tg('BackButton.onClick → назад'); render(); }
 }
 function logScreen() {
@@ -1107,8 +1248,10 @@ function render() {
   const head = $('#head'), content = $('#content'), overlay = $('#overlay');
   overlay.innerHTML = '';
   $('#screen .popup')?.remove();
-  content.className = 'content' + (sc.flush ? ' flush' : '');
+  content.className = 'content' + (sc.flush ? ' flush' : '') + (sc.browser ? ' pubc' : '');
   $('#screen').classList.toggle('fs', !!sc.fullscreen);
+  $('#screen').classList.toggle('browser', !!sc.browser);
+  $('#screen .cmds')?.remove();
 
   if (sc.chat) {
     head.innerHTML = `<div class="chat-head"><span class="back">${ic('left')}Чаты</span><div class="ct"><b>Файлы · бот</b><span>бот</span></div><span class="av">${ic('folder')}</span></div>`;
@@ -1118,12 +1261,22 @@ function render() {
     $('#bottom').hidden = true;
     let comp = $('#screen .composer');
     if (!comp) { comp = document.createElement('div'); comp.className = 'composer'; $('#screen').insertBefore(comp, $('#bottom')); }
-    comp.innerHTML = `<button class="menubtn" type="button" data-act="openapp">${ic('folder')}Файлы</button><span class="inp">Сообщение</span><span class="ci">${ic('clip')}</span><span class="ci">${ic('mic')}</span>`;
+    comp.innerHTML = `<button class="menubtn" type="button" data-act="openapp">${ic('folder')}Файлы</button><button class="inp" type="button" data-act="slash" aria-label="Поле ввода: показать команды">${S.slash ? '<b style="color:var(--tg-text)">/</b>' : 'Сообщение'}</button><span class="ci">${ic('clip')}</span><span class="ci">${ic('mic')}</span>`;
+    if (S.slash) {
+      const cmds = document.createElement('div');
+      cmds.className = 'cmds';
+      cmds.setAttribute('role', 'listbox');
+      cmds.innerHTML = [['/files', 'Открыть файлы'], ['/files_status', 'Состояние файлового менеджера'], ['/files_invite', 'Пригласить в «Файлы»'], ['/start', 'Главное меню'], ['/help', 'Справка по командам'], ['/info', 'Информация о боте']]
+        .map(([c, d]) => `<button type="button" role="option" data-act="cmd" data-arg="${c}"><b>${c}</b><span>${d}</span></button>`).join('') + '<p>…и остальные команды администратора. У обычного пользователя здесь только его базовый список.</p>';
+      $('#screen').insertBefore(cmds, comp);
+    }
     content.scrollTop = content.scrollHeight;
   } else {
     $('#screen .composer')?.remove();
     if (sc.fullscreen) {
       head.innerHTML = '';
+    } else if (sc.browser) {
+      head.innerHTML = `<div class="br-bar"><span class="br-url">${ic('lock')}files.example.com/s/k7Qm2x…</span><button class="br-btn" type="button" data-act="toast" data-arg="Это обычный браузер получателя, не Telegram" aria-label="Меню браузера">${ic('more')}</button></div>`;
     } else {
       const left = S.stack.length > 1 && !sc.root
         ? `<button class="hl" type="button" data-act="back">${ic('left')}Назад</button>`
@@ -1161,7 +1314,7 @@ function renderChat() {
   <div class="msg in">Отправьте файл, и я сохраню его в хранилище. Все файлы — по кнопке «Файлы» внизу.<span class="meta">17:58</span></div>
   <div class="msg out"><div class="docmsg"><span class="dic">${ic('file-text')}</span><div><b>Смета ремонта.xlsx</b><small>248 КБ</small></div></div><span class="meta">18:03 ✓✓</span></div>
   ${step === 0 ? `<div class="msg in">Куда сохранить «Смета ремонта.xlsx» (248 КБ)?<br><small style="color:var(--tg-hint)">Категория: авто → Документы</small><span class="meta">18:03</span></div>
-  <div class="kb"><button type="button" data-act="chatSave" data-arg="my">${ic('lock')}Мои</button><button type="button" data-act="chatSave" data-arg="shared">${ic('users')}Общие</button><button type="button" data-act="toast" data-arg="Список категорий, включая Бэкапы">${ic('folder')}Категория…</button><button type="button" data-act="toast" data-arg="Отменено">Отмена</button></div>`
+  <div class="kb"><button type="button" data-act="chatSave" data-arg="my">${ic('lock')}Мои</button><button type="button" data-act="chatSave" data-arg="shared">${ic('users')}Общие</button><button type="button" data-act="toast" data-arg="Недавние папки: Ремонт кухни, Сканы документов… или «Выбрать в приложении»">${ic('folder')}Папка…</button><button type="button" data-act="toast" data-arg="Отменено">Отмена</button></div>`
     : `<div class="msg in">✅ Сохранено: ${step === 1 ? 'Мои файлы' : 'Общие файлы'} › Документы<span class="meta">18:03</span></div><div class="kb"><button class="full" type="button" data-act="openapp">${ic('folder')}Открыть в Файлах</button></div>`}
   <div class="msg in">📥 В запрос «Документы для визы» загружено: <b>passport.pdf</b> (1,8 МБ)<span class="meta">18:21</span></div>
   <div class="kb"><button class="full" type="button" data-act="openapp">${ic('folder')}Открыть папку</button></div>
@@ -1174,7 +1327,7 @@ function updateNotes() {
   $('#noteCard').innerHTML = `
     <h3>${esc(n.title)} <span class="stage-tag">${esc(sc.stage)}</span></h3>
     <p>${esc(n.text)}</p>
-    <div class="note-sec"><h4>Telegram WebApp</h4><div class="chips-sh">${n.tg.map(t => `<span>${esc(t)}</span>`).join('')}</div></div>
+    <div class="note-sec"><h4>Telegram WebApp</h4>${n.tg.length ? `<div class="chips-sh">${n.tg.map(t => `<span>${esc(t)}</span>`).join('')}</div>` : '<p>Не используется: ссылка открывается в обычном браузере получателя, без Telegram.</p>'}</div>
     <div class="note-sec"><h4>Сервер</h4><ul class="api-list">${n.api.map(a => `<li>${a}</li>`).join('')}</ul></div>`;
 }
 function updateNav() {
@@ -1245,9 +1398,31 @@ const ACTIONS = {
   more: () => { tg('SettingsButton.onClick → Настройки'); toast('Меню ⋯: Настройки, Обновить, Добавить на экран «Домой»'); },
   toast: a => toast(a),
   qr: () => { tg('WebApp.showScanQrPopup({text: "Наведите на QR"})'); toast('Сканер QR: вход на ПК или чужая ссылка'); },
-  'zone-go': a => { S.zone = a; S.cat = 'Все'; S.q = ''; go('browse'); },
-  zone: a => { S.zone = a; S.cat = 'Все'; S.sel.clear(); tg('HapticFeedback.selectionChanged()'); render(); },
-  cat: a => { S.cat = a; S.view = (a === 'Фото' || a === 'Видео') ? 'grid' : S.view === 'grid' && a !== 'Все' ? 'list' : S.view; tg('HapticFeedback.selectionChanged()'); render(); },
+  'zone-go': a => { S.zone = a; S.cat = 'Все'; S.q = ''; S.path = []; go('browse'); },
+  zone: a => { S.zone = a; S.cat = 'Все'; S.path = []; S.sel.clear(); tg('HapticFeedback.selectionChanged()'); render(); },
+  enter: a => {
+    const fo = allFolders().find(x => x.id === a);
+    S.path.push(fo); S.q = ''; S.selecting = false; S.sel.clear();
+    tg(`GET /api/v1/files?scope=${S.zone}&category=${S.path[0].cat}&path=${S.path.map(x => x.name).join('/')}`);
+    tg('BackButton.show()');
+    render();
+  },
+  crumb: a => { const i = +a; if (i < 0) { S.cat = S.path[0].cat; S.path = []; } else S.path = S.path.slice(0, i + 1); S.q = ''; render(); },
+  newfolder: () => {
+    const cat = S.path.length ? S.path[0].cat : (S.cat === 'Все' ? 'Документы' : S.cat);
+    const fo = { id: 'n' + Date.now(), name: 'Новая папка', cat, files: 0, size: '0 Б' };
+    if (S.path.length) { folderContents(curFolder()); INSIDE[curFolder().id].folders.unshift(fo); }
+    else { FOLDERS[S.zone].unshift(fo); if (S.cat === 'Все') S.cat = cat; }
+    tg(`POST /api/v1/folders {scope:"${S.zone}", category:"${cat}", path:"${S.path.map(x => x.name).join('/')}", name:"Новая папка"}`);
+    tg('HapticFeedback.notificationOccurred("success")');
+    render(); toast('Создана папка «Новая папка»');
+  },
+  unlock: () => { tg('POST /s/<token>/unlock → доступ на 1 час'); S.pubLocked = false; render(); },
+  pubzip: () => { tg('GET /s/<token>/zip — потоково, без сжатия'); toast('Браузер начнёт скачивание архива'); },
+  pubdl: a => { tg(`GET /s/<token>/download?path=${fileById(+a).name}`); toast('Браузер начнёт скачивание'); },
+  slash: () => { S.slash = !S.slash; if (S.slash) tg('Ввод «/» → команды из setMyCommands (scope: этот админ)'); render(); },
+  cmd: a => { S.slash = false; render(); toast(a === '/files' ? 'Бот ответит кнопкой «📂 Открыть файлы»' : `Отправлено: ${a}`); },
+  cat: a => { S.cat = a; S.path = []; S.view = (a === 'Фото' || a === 'Видео') ? 'grid' : S.view === 'grid' && a !== 'Все' ? 'list' : S.view; tg('HapticFeedback.selectionChanged()'); render(); },
   view: a => { S.view = a; tg(`CloudStorage.setItem("view", "${a}")`); render(); },
   select: () => { S.selecting = !S.selecting; S.sel.clear(); render(); },
   pick: a => {
@@ -1315,7 +1490,7 @@ document.querySelectorAll('[data-tgtheme]').forEach(b => b.addEventListener('cli
 }));
 
 /* ---------- nav ---------- */
-const order = ['chat', 'link', 'home', 'browse', 'file', 'viewer', 'editor', 'uploads', 'share', 'links', 'trash', 'admin'];
+const order = ['chat', 'link', 'home', 'browse', 'file', 'viewer', 'editor', 'uploads', 'share', 'links', 'public', 'trash', 'admin'];
 $('#nav').insertAdjacentHTML('beforeend', order.map(k => `<button type="button" data-screen="${k}"><span>${SCREENS[k].nav}</span><span class="stage-tag">${SCREENS[k].stage.replace('Этап ', 'Э')}</span></button>`).join(''));
 $('#nav').addEventListener('click', e => { const b = e.target.closest('button[data-screen]'); if (b) nav(b.dataset.screen); });
 
