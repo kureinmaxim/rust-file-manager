@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::auth::current_user;
 use crate::config::AppConfig;
-use crate::files::HOME_DIR;
+use crate::storage::HOME_DIR;
 use crate::users::UserStore;
 
 #[derive(Serialize)]

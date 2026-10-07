@@ -3,6 +3,10 @@ mod auth;
 mod categories;
 mod config;
 mod files;
+mod paths;
+mod storage;
+mod tg_auth;
+mod tokens;
 mod users;
 
 use std::io::Read;
@@ -59,8 +63,8 @@ async fn main() -> std::io::Result<()> {
     };
 
     std::fs::create_dir_all(&config.upload_dir)?;
-    std::fs::create_dir_all(config.upload_dir.join(files::HOME_DIR))?;
-    let shared_dir = config.upload_dir.join(files::SHARED_DIR);
+    std::fs::create_dir_all(config.upload_dir.join(storage::HOME_DIR))?;
+    let shared_dir = config.upload_dir.join(storage::SHARED_DIR);
     std::fs::create_dir_all(&shared_dir)?;
     // Pre-multi-user installs kept categories at the upload root; move them
     // into the shared zone so existing files stay visible.
