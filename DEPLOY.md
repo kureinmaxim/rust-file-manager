@@ -8,6 +8,8 @@ systemd**, Bash и доступом root или sudo.
 Первичная установка ниже создаёт пользователя, каталоги и секреты; при
 обновлении эти шаги повторять не нужно.
 
+Мини-приложение в Telegram и связка с ботом — [TELEGRAM_MINIAPP.md](TELEGRAM_MINIAPP.md).
+
 Перенос на другой IP или VPS с файлами и пользователями —
 [DEPLOY4newVPS.md](DEPLOY4newVPS.md).
 
