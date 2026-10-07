@@ -3,7 +3,9 @@ mod auth;
 mod categories;
 mod config;
 mod files;
+mod internal;
 mod paths;
+mod reply;
 mod storage;
 mod tg_auth;
 mod tokens;
@@ -64,6 +66,7 @@ async fn main() -> std::io::Result<()> {
 
     std::fs::create_dir_all(&config.upload_dir)?;
     std::fs::create_dir_all(config.upload_dir.join(storage::HOME_DIR))?;
+    std::fs::create_dir_all(config.upload_dir.join(storage::STAGING_DIR))?;
     let shared_dir = config.upload_dir.join(storage::SHARED_DIR);
     std::fs::create_dir_all(&shared_dir)?;
     // Pre-multi-user installs kept categories at the upload root; move them
@@ -107,8 +110,12 @@ async fn main() -> std::io::Result<()> {
         "starting server"
     );
 
+    let started = web::Data::new(internal::ServerInfo {
+        started: std::time::Instant::now(),
+    });
     let app_config = config.clone();
-    HttpServer::new(move || {
+    let public_store = user_store.clone();
+    let public_server = HttpServer::new(move || {
         let session_middleware =
             SessionMiddleware::builder(CookieSessionStore::default(), session_key.clone())
                 .cookie_secure(app_config.cookie_secure)
@@ -121,7 +128,7 @@ async fn main() -> std::io::Result<()> {
 
         App::new()
             .app_data(app_config.clone())
-            .app_data(user_store.clone())
+            .app_data(public_store.clone())
             .app_data(handlebars.clone())
             .wrap(Logger::default())
             .wrap(session_middleware)
@@ -148,6 +155,25 @@ async fn main() -> std::io::Result<()> {
             )
     })
     .bind(&config.bind_addr)?
-    .run()
-    .await
+    .run();
+
+    let Some(internal_addr) = config.internal_bind_addr.clone() else {
+        return public_server.await;
+    };
+    // Internal API for the bot: own listener, never proxied by nginx.
+    let internal_config = config.clone();
+    let internal_server = HttpServer::new(move || {
+        App::new()
+            .app_data(internal_config.clone())
+            .app_data(user_store.clone())
+            .app_data(started.clone())
+            .wrap(Logger::default())
+            .configure(internal::configure)
+    })
+    .workers(1)
+    .bind(&internal_addr)?
+    .run();
+    tracing::info!(addr = %internal_addr, "internal API for the bot enabled");
+    futures_util::future::try_join(public_server, internal_server).await?;
+    Ok(())
 }

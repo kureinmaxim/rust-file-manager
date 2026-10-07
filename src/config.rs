@@ -204,6 +204,38 @@ impl AppConfig {
         })
     }
 
+    /// Configuration for unit tests: temporary storage, a Telegram config
+    /// that trusts the test signing key, small upload chunks.
+    #[cfg(test)]
+    pub fn for_tests(upload_dir: PathBuf) -> Self {
+        Self {
+            bind_addr: "127.0.0.1:0".into(),
+            users_file: upload_dir.join("users.json"),
+            upload_dir,
+            max_file_size: 10 * 1024 * 1024,
+            admin_username: "admin".into(),
+            admin_password_hash: bcrypt::hash("admin-pass", 4).expect("bcrypt"),
+            cookie_secure: false,
+            telegram: Some(TelegramConfig {
+                bot_id: crate::tg_auth::test_support::BOT_ID,
+                bot_username: "files_test_bot".into(),
+                test_env: false,
+                init_data_max_age: 3600,
+                dev_public_key: Some(
+                    crate::tg_auth::test_support::signing_key()
+                        .verifying_key()
+                        .to_bytes(),
+                ),
+            }),
+            public_base_url: Some("https://files.example.com".into()),
+            internal_bind_addr: None,
+            internal_api_token: None,
+            max_chunked_file_size: 64 * 1024 * 1024,
+            upload_chunk_size: 1024 * 1024,
+            secret: vec![5u8; 64],
+        }
+    }
+
     /// Cookie signing key derived from the session secret.
     pub fn session_key(&self) -> Key {
         Key::from(&self.secret)

@@ -204,6 +204,27 @@ pub fn folder_size(path: &Path) -> u64 {
         .sum()
 }
 
+/// Total and available bytes of the filesystem holding `path`.
+#[cfg(unix)]
+#[allow(clippy::unnecessary_cast)] // field widths differ between Linux and macOS
+pub fn disk_usage(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::ffi::OsStrExt;
+    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    // SAFETY: statvfs only writes into the zeroed struct we pass and reads the
+    // NUL-terminated path; both outlive the call.
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } != 0 {
+        return None;
+    }
+    let block = stat.f_frsize as u64;
+    Some((stat.f_blocks as u64 * block, stat.f_bavail as u64 * block))
+}
+
+#[cfg(not(unix))]
+pub fn disk_usage(_path: &Path) -> Option<(u64, u64)> {
+    None
+}
+
 /// Category ids paired with their UI titles: regular categories first, then
 /// the backup folders shown as «Бэкапы — <folder>».
 pub fn category_listing() -> Vec<(String, String)> {
