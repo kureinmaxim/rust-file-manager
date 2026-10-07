@@ -27,6 +27,7 @@ struct Env {
     keys: web::Data<TokenKeys>,
     limiter: web::Data<crate::ratelimit::RateLimiter>,
     locks: web::Data<UploadLocks>,
+    events: web::Data<crate::exchange::Events>,
 }
 
 impl Env {
@@ -46,6 +47,7 @@ impl Env {
             keys: web::Data::new(keys),
             limiter: web::Data::new(link_limiter()),
             locks: web::Data::new(UploadLocks::default()),
+            events: web::Data::new(crate::exchange::Events::default()),
         }
     }
 
@@ -60,6 +62,7 @@ impl Env {
                 .app_data(self.keys.clone())
                 .app_data(self.limiter.clone())
                 .app_data(self.locks.clone())
+                .app_data(self.events.clone())
                 .configure(api::configure),
         )
         .await
@@ -923,6 +926,12 @@ async fn exchange_between_admin_and_one_user_over_the_api() {
     .await;
     assert_eq!(sent["direction"], "outgoing");
     assert_eq!(sent["owner"], "anna");
+    let recorded = env.events.after(0, 10);
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(
+        (recorded[0].owner.as_str(), recorded[0].name.as_str()),
+        ("anna", "план #1.pdf")
+    );
     // Nobody sends into someone else's exchange.
     for (token, with) in [(&bob, "anna"), (&anna, "bob"), (&admin, "zed")] {
         let (status, body) = send(

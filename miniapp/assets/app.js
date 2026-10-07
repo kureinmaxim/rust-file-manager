@@ -1025,6 +1025,27 @@ function Link({ info, onDone }) {
 // App
 // ---------------------------------------------------------------------------
 
+/** Where a deep link asks to start: `?open=exchange[:<user>]` (bot notifications)
+ * or `startapp=exchange`. Used once, on the first successful start. */
+let deepLink = (() => {
+  try {
+    return new URLSearchParams(location.search).get('open') || tg.startParam() || '';
+  } catch {
+    return '';
+  }
+})();
+function startStack(user) {
+  const stack = [{ name: 'home' }];
+  const link = deepLink;
+  deepLink = '';
+  if (link === 'exchange' || link.startsWith('exchange:')) {
+    stack.push({ name: 'exchange' });
+    const owner = link.slice('exchange:'.length);
+    if (owner && user && user.is_admin) stack.push({ name: 'exchange', owner });
+  }
+  return stack;
+}
+
 function App() {
   const [phase, setPhase] = useState({ name: 'boot' });
   const n = nav.use();
@@ -1036,7 +1057,7 @@ function App() {
     try {
       const s = await openSession();
       if (s.ok) {
-        nav.set({ stack: [{ name: 'home' }] });
+        nav.set({ stack: startStack(session().user) });
         data.set({ version: data.state.version + 1, overview: null });
         setPhase({ name: 'ready' });
       } else setPhase({ name: 'link', info: s.notLinked });

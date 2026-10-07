@@ -137,11 +137,14 @@ async fn main() -> std::io::Result<()> {
         "starting server"
     );
 
+    // Exchange arrivals: written by the public server, read by the bot's internal API.
+    let exchange_events = web::Data::new(exchange::Events::default());
     let started = web::Data::new(internal::ServerInfo {
         started: std::time::Instant::now(),
     });
     let app_config = config.clone();
     let public_store = user_store.clone();
+    let public_events = exchange_events.clone();
     let public_server = HttpServer::new(move || {
         let session_middleware =
             SessionMiddleware::builder(CookieSessionStore::default(), session_key.clone())
@@ -160,6 +163,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(token_keys.clone())
             .app_data(link_limiter.clone())
             .app_data(upload_locks.clone())
+            .app_data(public_events.clone())
             // Signed download links carry a token in the path: keep them out of the access log.
             .wrap(Logger::default().exclude_regex("^/d/"))
             .wrap(session_middleware)
@@ -211,6 +215,7 @@ async fn main() -> std::io::Result<()> {
     let internal_server = HttpServer::new(move || {
         App::new()
             .app_data(internal_config.clone())
+            .app_data(exchange_events.clone())
             .app_data(user_store.clone())
             .app_data(started.clone())
             .wrap(Logger::default())

@@ -23,6 +23,7 @@ struct Env {
     dir: PathBuf,
     config: web::Data<AppConfig>,
     store: web::Data<UserStore>,
+    events: web::Data<crate::exchange::Events>,
 }
 
 impl Env {
@@ -36,6 +37,7 @@ impl Env {
             dir,
             config: web::Data::new(config),
             store: web::Data::new(store),
+            events: web::Data::new(crate::exchange::Events::default()),
         }
     }
 
@@ -52,6 +54,7 @@ impl Env {
                 .app_data(self.config.clone())
                 .app_data(self.store.clone())
                 .app_data(web::Data::new(files::templates()))
+                .app_data(self.events.clone())
                 .wrap(
                     SessionMiddleware::builder(CookieSessionStore::default(), Key::from(&[9; 64]))
                         .cookie_secure(false)
@@ -658,6 +661,17 @@ async fn exchange_is_private_to_the_admin_and_one_user() {
     assert_eq!(status, StatusCode::OK, "{body}");
     let sent = exchange.join("anna/from-admin/договор #1.pdf");
     assert_eq!(fs::read(&sent).unwrap(), b"DOC");
+    let recorded = env.events.after(0, 10);
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(
+        (
+            recorded[0].owner.as_str(),
+            recorded[0].name.as_str(),
+            recorded[0].size
+        ),
+        ("anna", "договор #1.pdf", 3)
+    );
+    assert_eq!(recorded[0].inbox, crate::exchange::Inbox::FromAdmin);
     assert!(page(&app, &anna).await.contains("договор #1.pdf"));
     assert!(page(&app, &admin).await.contains("договор #1.pdf"));
     assert!(!page(&app, &bob).await.contains("договор #1.pdf"));
