@@ -7,6 +7,7 @@ mod categories;
 mod config;
 mod files;
 mod internal;
+mod miniapp;
 mod paths;
 mod ratelimit;
 mod reply;
@@ -168,6 +169,7 @@ async fn main() -> std::io::Result<()> {
             .configure(|cfg| {
                 if miniapp_enabled {
                     api::configure(cfg);
+                    miniapp::configure(cfg);
                 }
             })
             .route("/login", web::get().to(auth::login_page))

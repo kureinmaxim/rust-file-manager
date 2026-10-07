@@ -12,7 +12,9 @@ use std::path::Path;
 use actix_files::NamedFile;
 use actix_web::body::{BoxBody, MessageBody};
 use actix_web::dev::{ServiceRequest, ServiceResponse};
-use actix_web::http::header::{self, ContentDisposition, DispositionParam, DispositionType};
+use actix_web::http::header::{
+    self, Charset, ContentDisposition, DispositionParam, DispositionType, ExtendedValue,
+};
 use actix_web::http::StatusCode;
 use actix_web::middleware::{from_fn, Next};
 use actix_web::{delete, get, post, web, Error, HttpMessage, HttpRequest, HttpResponse};
@@ -1072,6 +1074,32 @@ async fn make_link(
     reply::ok(json!({ "url": format!("/d/{token}"), "expires_at": exp }))
 }
 
+/// `filename*` (RFC 6266/5987) carries the real UTF-8 name; plain `filename`
+/// is an ASCII fallback for old clients, so Cyrillic names survive downloads.
+fn disposition(kind: DispositionType, name: &str) -> ContentDisposition {
+    let ascii: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii() && !c.is_ascii_control() && c != '"' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    ContentDisposition {
+        disposition: kind,
+        parameters: vec![
+            DispositionParam::Filename(ascii),
+            DispositionParam::FilenameExt(ExtendedValue {
+                charset: Charset::Ext("UTF-8".into()),
+                language_tag: None,
+                value: name.as_bytes().to_vec(),
+            }),
+        ],
+    }
+}
+
 /// Types a browser may render inline from a signed link. Never SVG or HTML.
 fn inline_safe(mime: &str) -> bool {
     matches!(
@@ -1123,14 +1151,14 @@ async fn signed_download(
     let mime = file.content_type().essence_str().to_string();
     let inline = claims.d == Disposition::Inline && inline_safe(&mime);
     let mut response = file
-        .set_content_disposition(ContentDisposition {
-            disposition: if inline {
+        .set_content_disposition(disposition(
+            if inline {
                 DispositionType::Inline
             } else {
                 DispositionType::Attachment
             },
-            parameters: vec![DispositionParam::Filename(claims.n.clone())],
-        })
+            &claims.n,
+        ))
         .use_last_modified(true)
         .into_response(&req);
     let headers = response.headers_mut();

@@ -812,12 +812,13 @@ async fn signed_links_download_ranges_and_expire_on_revoke() {
     .await;
     assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
     let headers = resp.headers().clone();
-    assert!(headers
+    let cd = headers
         .get(header::CONTENT_DISPOSITION)
         .unwrap()
         .to_str()
-        .unwrap()
-        .starts_with("inline"));
+        .unwrap();
+    assert!(cd.starts_with("inline"), "{cd}");
+    assert!(cd.contains("filename*=UTF-8''photo.jpg"), "{cd}");
     assert_eq!(
         headers.get(header::X_CONTENT_TYPE_OPTIONS).unwrap(),
         "nosniff"
