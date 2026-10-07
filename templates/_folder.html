@@ -1,0 +1,11 @@
+<details class="folder" data-scope="{{scope}}" data-category="{{category}}" data-path="{{path}}" data-name="{{name}}">
+    <summary><svg class="icon folder-icon" aria-hidden="true"><use href="#folder"/></svg><span class="folder-name">{{name}}</span><span class="count"></span><svg class="icon chevron" aria-hidden="true"><use href="#chevron"/></svg></summary>
+    <div class="folder-tools">
+        <button class="button compact" type="button" data-upload-here data-scope="{{scope}}" data-category="{{category}}" data-path="{{path}}" aria-label="Загрузить файлы в папку {{name}}"><svg class="icon" aria-hidden="true"><use href="#upload"/></svg>Загрузить сюда</button>
+        <button class="button compact" type="button" data-new-folder data-scope="{{scope}}" data-category="{{category}}" data-path="{{path}}" aria-label="Новая папка внутри {{name}}"><svg class="icon" aria-hidden="true"><use href="#folder-plus"/></svg>Новая папка</button>
+        <button class="button compact" type="button" data-rename-folder data-scope="{{scope}}" data-category="{{category}}" data-path="{{path}}" data-name="{{name}}" aria-label="Переименовать папку {{name}}"><svg class="icon" aria-hidden="true"><use href="#edit"/></svg>Переименовать</button>
+        <button class="button compact danger" type="button" data-delete-folder data-scope="{{scope}}" data-category="{{category}}" data-path="{{path}}" data-name="{{name}}" aria-label="Удалить папку {{name}}"><svg class="icon" aria-hidden="true"><use href="#trash"/></svg>Удалить</button>
+    </div>
+    <ul class="files">{{#each files}}{{> file_row}}{{/each}}</ul>
+    {{#each folders}}{{> folder}}{{/each}}
+</details>

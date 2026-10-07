@@ -85,10 +85,21 @@
         .zone-title h2 { display:flex; align-items:center; gap:8px; margin:0; font-size:17px; }
         .zone-size { font-size:12px; color:var(--muted); white-space:nowrap; }
         .category { margin-bottom:12px; overflow:hidden; }
-        .category summary { display:flex; align-items:center; gap:10px; padding:14px 18px; cursor:pointer; min-height:50px; font-size:13px; font-weight:600; list-style:none; background:#fbfcfd; }
-        .category summary::-webkit-details-marker { display:none; }
-        .category summary .chevron { margin-left:auto; width:16px; transition:transform .15s; }
-        .category[open] summary .chevron { transform:rotate(90deg); }
+        .category > summary { display:flex; align-items:center; gap:10px; padding:14px 18px; cursor:pointer; min-height:50px; font-size:13px; font-weight:600; list-style:none; background:#fbfcfd; }
+        .category > summary::-webkit-details-marker, .folder > summary::-webkit-details-marker { display:none; }
+        .category > summary .chevron, .folder > summary .chevron { margin-left:auto; width:16px; transition:transform .15s; }
+        .category[open] > summary .chevron, .folder[open] > summary .chevron { transform:rotate(90deg); }
+        .folder { margin:0 0 6px 18px; border-left:2px solid #e3eaef; }
+        .folder > summary { display:flex; align-items:center; gap:10px; padding:10px 14px; min-height:46px; cursor:pointer; list-style:none; font-size:13px; font-weight:600; border-top:1px solid #edf1f5; }
+        .folder > summary:hover { background:#fcfdfd; }
+        .folder-icon { color:#b7862a; }
+        .folder-name { min-width:0; overflow-wrap:anywhere; }
+        .folder-tools { display:flex; flex-wrap:wrap; gap:6px; padding:6px 18px 10px; }
+        .folder > .folder-tools { padding-left:14px; }
+        .zone-tools { display:flex; align-items:center; gap:12px; }
+        .upload-target { display:flex; align-items:center; gap:4px 10px; flex-wrap:wrap; margin-top:14px; padding:8px 12px; border-radius:9px; background:var(--soft); font-size:13px; }
+        .upload-target strong { overflow-wrap:anywhere; }
+        .upload-target .text-button { margin-left:auto; }
         .count { color:var(--muted); font-size:11px; font-weight:400; padding:2px 7px; border:1px solid var(--border); border-radius:20px; }
         .files { list-style:none; padding:0; margin:0; }
         .file-row { display:flex; align-items:center; gap:12px; padding:15px 18px; border-top:1px solid #edf1f5; }
@@ -125,6 +136,8 @@
         dialog h2 { font-size:20px; margin:0 0 10px; }
         dialog p { color:var(--muted); font-size:14px; margin:0 0 18px; }
         .dialog-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:22px; }
+        .move-fields { display:grid; gap:12px; margin-bottom:6px; }
+        dialog .move-hint { margin:0; font-size:13px; }
         .dialog-error { color:var(--danger); font-size:13px; margin-top:10px; overflow-wrap:anywhere; }
         @media (max-width:1000px) {
             .layout { display:block; }
@@ -162,7 +175,11 @@
             .file-icon { width:32px; height:38px; }
             .file-actions { width:100%; justify-content:flex-end; padding-top:4px; border-top:1px solid #edf1f5; gap:8px; }
             .file-actions .icon-button { background:#f4f7f9; }
-            .category summary { padding:13px 14px; }
+            .category > summary { padding:13px 14px; }
+            .folder { margin-left:10px; }
+            .folder-tools { padding:6px 12px 10px; }
+            .folder-tools .button { flex:1 1 calc(50% - 6px); }
+            .zone-title { flex-wrap:wrap; }
             .invite-link { flex-wrap:wrap; }
             .invite-link input { flex-basis:100%; }
             .status { bottom:16px; right:16px; }
@@ -185,6 +202,8 @@
     <symbol id="edit" viewBox="0 0 24 24"><path d="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14Z"/></symbol>
     <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18m-12 0V3h6v3M5 6l1 15h12l1-15M9 10v7m6-7v7"/></symbol>
     <symbol id="chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="move" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3Z"/><path d="M8 14h8m-3-3 3 3-3 3"/></symbol>
+    <symbol id="folder-plus" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3Z"/><path d="M12 11v6m-3-3h6"/></symbol>
 </svg>
 <a class="skip-link" href="#filesHeading">Перейти к файлам</a>
 <div class="layout">
@@ -218,6 +237,7 @@
                     <span class="button choose">Выбрать файлы</span>
                     <input class="sr-only" type="file" name="file" id="fileInput" multiple aria-label="Выбрать файлы для загрузки">
                 </label>
+                <div class="upload-target" id="uploadTarget" hidden><svg class="icon" aria-hidden="true"><use href="#folder"/></svg><span>Загрузка в папку: <strong id="uploadTargetLabel"></strong></span><button class="text-button" type="button" id="clearTarget">Выбрать по-другому</button></div>
                 <div class="upload-settings">
                     <div class="field"><label for="zoneSelect">Куда загрузить</label><select id="zoneSelect"><option value="my">Мои файлы — только для меня</option><option value="shared">Общие файлы — для всех</option></select></div>
                     <div class="field"><label for="categorySelect">Категория</label><select id="categorySelect"><option value="">Определить по типу файла</option><option value="Серверы">Бэкапы — Серверы</option><option value="HA">Бэкапы — HA</option><option value="Project">Бэкапы — Project</option></select></div>
@@ -238,27 +258,19 @@
         <section class="panel empty" id="noResults" hidden><svg class="icon" aria-hidden="true"><use href="#search"/></svg><h3>Ничего не найдено</h3><p>Измените имя или выберите другую область хранения.</p></section>
         {{#each zones}}
         <section class="zone" data-scope="{{this.scope}}" aria-label="{{this.title}}">
-            <div class="zone-title"><h2><svg class="icon" aria-hidden="true"><use href="{{#if @first}}#lock{{else}}#users{{/if}}"/></svg>{{this.title}}</h2><span class="zone-size">{{this.total_size}}</span></div>
+            <div class="zone-title"><h2><svg class="icon" aria-hidden="true"><use href="{{#if @first}}#lock{{else}}#users{{/if}}"/></svg>{{this.title}}</h2><span class="zone-tools"><button class="button compact" type="button" data-new-folder data-scope="{{this.scope}}" aria-label="Новая папка в разделе «{{this.title}}»"><svg class="icon" aria-hidden="true"><use href="#folder-plus"/></svg>Новая папка</button><span class="zone-size">{{this.total_size}}</span></span></div>
             {{#each this.categories}}
-            <details class="panel category" open>
+            <details class="panel category" open data-scope="{{this.scope}}" data-category="{{this.category}}">
                 <summary><svg class="icon" aria-hidden="true"><use href="#folder"/></svg>{{this.title}}<span class="count"></span><svg class="icon chevron" aria-hidden="true"><use href="#chevron"/></svg></summary>
-                <ul class="files">
-                    {{#each this.files}}
-                    <li class="file-row" data-name="{{this.name}}" data-size="{{this.size_bytes}}" data-modified="{{this.modified}}">
-                        <span class="file-icon" aria-hidden="true">FILE</span>
-                        <div class="file-content"><a class="file-link" href="{{this.url}}" download>{{this.name}}</a><div class="file-meta"><span>{{this.size}}</span><time data-timestamp="{{this.modified}}"></time></div></div>
-                        <div class="file-actions">
-                            <a class="icon-button" href="{{this.url}}" download title="Скачать" aria-label="Скачать {{this.name}}"><svg class="icon" aria-hidden="true"><use href="#download"/></svg></a>
-                            <button class="icon-button" type="button" data-copy data-scope="{{../../scope}}" data-category="{{../category}}" data-file="{{this.name}}" title="Копировать ссылку" aria-label="Копировать ссылку на {{this.name}}"><svg class="icon" aria-hidden="true"><use href="#link"/></svg></button>
-                            <button class="icon-button" type="button" data-rename data-scope="{{../../scope}}" data-category="{{../category}}" data-file="{{this.name}}" title="Переименовать" aria-label="Переименовать {{this.name}}"><svg class="icon" aria-hidden="true"><use href="#edit"/></svg></button>
-                            <button class="icon-button danger" type="button" data-delete data-scope="{{../../scope}}" data-category="{{../category}}" data-file="{{this.name}}" title="Удалить" aria-label="Удалить {{this.name}}"><svg class="icon" aria-hidden="true"><use href="#trash"/></svg></button>
-                        </div>
-                    </li>
-                    {{/each}}
-                </ul>
+                <div class="folder-tools">
+                    <button class="button compact" type="button" data-upload-here data-scope="{{this.scope}}" data-category="{{this.category}}" data-path="" aria-label="Загрузить файлы в категорию {{this.title}}"><svg class="icon" aria-hidden="true"><use href="#upload"/></svg>Загрузить сюда</button>
+                    <button class="button compact" type="button" data-new-folder data-scope="{{this.scope}}" data-category="{{this.category}}" data-path="" aria-label="Новая папка в категории {{this.title}}"><svg class="icon" aria-hidden="true"><use href="#folder-plus"/></svg>Новая папка</button>
+                </div>
+                <ul class="files">{{#each this.files}}{{> file_row}}{{/each}}</ul>
+                {{#each this.folders}}{{> folder}}{{/each}}
             </details>
             {{/each}}
-            {{#unless this.categories}}<div class="panel empty zone-empty"><svg class="icon" aria-hidden="true"><use href="#folder"/></svg><h3>Здесь пока нет файлов</h3><p>Выберите эту область в форме загрузки, чтобы добавить первый файл.</p></div>{{/unless}}
+            {{#unless this.categories}}<div class="panel empty zone-empty"><svg class="icon" aria-hidden="true"><use href="#folder"/></svg><h3>Здесь пока нет файлов</h3><p>Выберите эту область в форме загрузки, чтобы добавить первый файл, или создайте папку.</p></div>{{/unless}}
         </section>
         {{/each}}
         {{#if is_admin}}
@@ -275,6 +287,13 @@
 <div class="status" id="status" hidden><span id="statusMessage" role="status" aria-live="polite"></span><button type="button" id="dismissStatus" aria-label="Закрыть уведомление">✕</button></div>
 <dialog id="actionDialog" aria-labelledby="dialogTitle" aria-describedby="dialogDescription">
     <form id="dialogForm"><h2 id="dialogTitle"></h2><p id="dialogDescription"></p>
+        <div class="field" id="dialogSelectField" hidden><label for="dialogSelect">Категория</label><select id="dialogSelect">{{#each categories}}<option value="{{this.id}}">{{this.title}}</option>{{/each}}</select></div>
+        <div class="move-fields" id="dialogMoveFields" hidden>
+            <div class="field"><label for="moveZone">Зона</label><select id="moveZone"><option value="my">Мои файлы — только для меня</option><option value="shared">Общие файлы — для всех</option></select></div>
+            <div class="field"><label for="moveCategory">Категория</label><select id="moveCategory">{{#each categories}}<option value="{{this.id}}">{{this.title}}</option>{{/each}}</select></div>
+            <div class="field"><label for="moveFolder">Папка</label><select id="moveFolder"></select></div>
+            <p class="move-hint" id="moveHint" aria-live="polite"></p>
+        </div>
         <div class="field" id="dialogField"><label for="dialogInput" id="dialogInputLabel">Новое имя</label><input type="text" id="dialogInput" autocomplete="off"></div>
         <div class="dialog-error" id="dialogError" role="alert" hidden></div>
         <div class="dialog-actions"><button class="button" type="button" id="dialogCancel">Отмена</button><button class="button primary" type="submit" id="dialogConfirm">Сохранить</button></div>
@@ -314,42 +333,84 @@ async function apiCall(url, options = {}) {
     if (!response.ok || !data.success) throw new Error(data.message || `Ошибка сервера (${response.status})`);
     return data;
 }
-function fileURL(scope, category, name) { return '/uploads/' + [scope,category,name].map(encodeURIComponent).join('/'); }
+function fileURL(scope, category, name, path = '') { return '/uploads/' + [scope,category,name].map(encodeURIComponent).join('/') + (path ? '?path=' + encodeURIComponent(path) : ''); }
+const zoneTitles = { my:'Мои файлы', shared:'Общие файлы' };
+function categoryTitle(id) {
+    const option = Array.from($('dialogSelect').options).find(option => option.value === id);
+    return option ? option.textContent : id;
+}
+function placeLabel(scope, category, path) { return [zoneTitles[scope] || scope, categoryTitle(category), ...(path ? path.split('/') : [])].join(' › '); }
+
+// Open folders survive reloads (after uploads and renames) when sessionStorage works.
+const OPEN_KEY = 'rfm-open-folders';
+let openFolders = new Set();
+try { openFolders = new Set(JSON.parse(sessionStorage.getItem(OPEN_KEY) || '[]')); } catch { /* folders just start closed */ }
+const folderKey = (scope, category, path) => [scope, category, path].join('\u0000');
+function saveOpenFolders() { try { sessionStorage.setItem(OPEN_KEY, JSON.stringify(Array.from(openFolders))); } catch { /* optional */ } }
+function rememberOpen(scope, category, path) {
+    const parts = path ? path.split('/') : [];
+    for (let i = 1; i <= parts.length; i++) openFolders.add(folderKey(scope, category, parts.slice(0, i).join('/')));
+    saveOpenFolders();
+}
+function restoreFolders() {
+    document.querySelectorAll('.folder').forEach(folder => { folder.open = openFolders.has(folderKey(folder.dataset.scope, folder.dataset.category, folder.dataset.path)); });
+}
+document.addEventListener('toggle', event => {
+    const folder = event.target;
+    if (!folder.classList || !folder.classList.contains('folder') || $('searchInput').value.trim()) return;
+    const key = folderKey(folder.dataset.scope, folder.dataset.category, folder.dataset.path);
+    if (folder.open) openFolders.add(key); else openFolders.delete(key);
+    saveOpenFolders();
+}, true);
 
 function filterFiles() {
     const query = $('searchInput').value.trim().toLocaleLowerCase('ru');
     const sort = $('sortSelect').value;
     let visible = 0;
     let total = 0;
+    let anyShown = false;
     document.querySelectorAll('.zone').forEach(zone => {
         const matchesZone = activeZone === 'all' || zone.dataset.scope === activeZone;
         zone.hidden = !matchesZone;
         let zoneMatches = 0;
+        let zoneShown = false;
         zone.querySelectorAll('.category').forEach(category => {
-            const list = category.querySelector('.files');
-            const rows = Array.from(list.children);
-            rows.sort((a,b) => {
-                const names = a.dataset.name.localeCompare(b.dataset.name, 'ru', { numeric:true });
-                if (sort === 'size') return Number(b.dataset.size) - Number(a.dataset.size) || names;
-                if (sort === 'recent') return Number(b.dataset.modified || 0) - Number(a.dataset.modified || 0) || names;
-                return names;
-            }).forEach(row => list.append(row));
+            category.querySelectorAll('.files').forEach(list => {
+                Array.from(list.children).sort((a,b) => {
+                    const names = a.dataset.name.localeCompare(b.dataset.name, 'ru', { numeric:true });
+                    if (sort === 'size') return Number(b.dataset.size) - Number(a.dataset.size) || names;
+                    if (sort === 'recent') return Number(b.dataset.modified || 0) - Number(a.dataset.modified || 0) || names;
+                    return names;
+                }).forEach(row => list.append(row));
+            });
+            const rows = Array.from(category.querySelectorAll('.file-row'));
             let matches = 0;
             rows.forEach(row => {
                 row.hidden = !row.dataset.name.toLocaleLowerCase('ru').includes(query);
                 if (!row.hidden) matches++;
             });
-            category.hidden = matches === 0;
-            category.querySelector('.count').textContent = matches;
-            if (query && matches) category.open = true;
+            // Deepest folders first, so each parent knows whether a subfolder stays visible.
+            Array.from(category.querySelectorAll('.folder')).reverse().forEach(folder => {
+                const inside = folder.querySelectorAll('.file-row:not([hidden])').length;
+                const childShown = Array.from(folder.querySelectorAll(':scope > .folder')).some(child => !child.hidden);
+                const nameMatches = Boolean(query) && folder.dataset.name.toLocaleLowerCase('ru').includes(query);
+                folder.hidden = Boolean(query) && !inside && !childShown && !nameMatches;
+                folder.querySelector(':scope > summary .count').textContent = inside;
+                if (query && (inside || childShown)) folder.open = true;
+            });
+            const folderShown = Array.from(category.querySelectorAll(':scope > .folder')).some(folder => !folder.hidden);
+            category.hidden = Boolean(query) && matches === 0 && !folderShown;
+            category.querySelector(':scope > summary .count').textContent = matches;
+            if (query && !category.hidden) category.open = true;
+            if (!category.hidden) zoneShown = true;
             zoneMatches += matches;
             if (matchesZone) total += rows.length;
         });
-        if (matchesZone) visible += zoneMatches;
-        if (query && !zoneMatches) zone.hidden = true;
+        if (matchesZone) { visible += zoneMatches; if (zoneShown) anyShown = true; }
+        if (query && !zoneShown) zone.hidden = true;
     });
     $('resultsCount').textContent = query ? `Найдено: ${visible} из ${total}` : `Файлов: ${total}`;
-    $('noResults').hidden = !query || visible > 0;
+    $('noResults').hidden = !query || visible > 0 || anyShown;
     $('resetFilters').hidden = !query && activeZone === 'all' && sort === 'name';
     document.querySelectorAll('[data-zone]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.zone === activeZone)));
     const params = new URLSearchParams(location.search);
@@ -384,6 +445,7 @@ document.querySelectorAll('.file-row').forEach(row => {
 });
 }
 decorateFiles();
+restoreFolders();
 filterFiles();
 async function updateListing() {
     const response=await fetch(location.href,{headers:{Accept:'text/html'}});
@@ -393,7 +455,7 @@ async function updateListing() {
     const incoming=Array.from(documentCopy.querySelectorAll('.zone'));
     if (incoming.length!==2) throw new Error('Не удалось обновить список файлов.');
     document.querySelectorAll('.zone').forEach((zone,index) => zone.replaceWith(incoming[index]));
-    decorateFiles(); filterFiles();
+    decorateFiles(); restoreFolders(); filterFiles();
 }
 
 function sizeLabel(bytes) { return bytes < 1024*1024 ? `${Math.ceil(bytes/1024)} KB` : `${(bytes/1024/1024).toFixed(1)} MB`; }
@@ -414,6 +476,21 @@ function selectFiles(files) {
     renderQueue();
 }
 $('fileInput').addEventListener('change', event => selectFiles(event.target.files));
+let uploadTarget = null;
+function setUploadTarget(target) {
+    uploadTarget = target;
+    $('uploadTarget').hidden = !target;
+    if (target) {
+        $('uploadTargetLabel').textContent = placeLabel(target.scope, target.category, target.path);
+        $('zoneSelect').value = target.scope;
+    }
+    // The folder fixes both zone and category, so their selects step aside.
+    $('zoneSelect').closest('.field').hidden = Boolean(target);
+    $('categorySelect').closest('.field').hidden = Boolean(target);
+    $('zoneSelect').disabled = uploading;
+    $('categorySelect').disabled = uploading;
+}
+$('clearTarget').addEventListener('click', () => { if (!uploading) setUploadTarget(null); });
 const dropzone = $('dropzone');
 ['dragenter','dragover'].forEach(type => dropzone.addEventListener(type, event => { event.preventDefault(); if (!uploading) dropzone.classList.add('dragover'); }));
 ['dragleave','drop'].forEach(type => dropzone.addEventListener(type, event => { event.preventDefault(); dropzone.classList.remove('dragover'); }));
@@ -446,12 +523,18 @@ $('uploadForm').addEventListener('submit', async event => {
     const pending = queue.filter(item => item.state!=='success');
     if (!pending.length) { showStatus('Сначала выберите файлы для загрузки.',false); $('fileInput').focus(); return; }
     uploading=true;
-    const controls=[$('fileInput'),$('zoneSelect'),$('categorySelect'),$('uploadBtn')];
+    const controls=[$('fileInput'),$('zoneSelect'),$('categorySelect'),$('uploadBtn'),$('clearTarget')];
     controls.forEach(control => { control.disabled=true; });
     $('uploadForm').setAttribute('aria-busy','true');
     $('uploadProgress').hidden=false;
-    const zone=$('zoneSelect').value, category=$('categorySelect').value;
-    const url=`/upload/${zone}` + (category ? `?category=${encodeURIComponent(category)}` : '');
+    const target=uploadTarget;
+    const zone=target ? target.scope : $('zoneSelect').value;
+    const category=target ? target.category : $('categorySelect').value;
+    const params=new URLSearchParams();
+    if (category) params.set('category',category);
+    if (target && target.path) params.set('path',target.path);
+    const query=params.toString();
+    const url=`/upload/${encodeURIComponent(zone)}` + (query ? '?' + query : '');
     let failures=0;
     try {
         for (let index=0; index<pending.length; index++) {
@@ -466,7 +549,7 @@ $('uploadForm').addEventListener('submit', async event => {
             catch (error) { item.state='error'; item.message=error.message; failures++; if (error.message==='Требуется повторный вход') break; }
             renderQueue();
         }
-        if (!failures) { uploading=false; refresh(`Загружено файлов: ${pending.length}.`); }
+        if (!failures) { uploading=false; if (target) rememberOpen(target.scope,target.category,target.path); refresh(`Загружено файлов: ${pending.length}.`); }
         else {
             if (pending.some(item => item.state==='success')) {
                 try { await updateListing(); } catch { /* successful files remain confirmed in the queue */ }
@@ -474,26 +557,28 @@ $('uploadForm').addEventListener('submit', async event => {
             showStatus('Часть файлов не загружена. Успешные отмечены в очереди. Повторная загрузка отправит только остальные файлы.',false);
         }
     } finally {
-        uploading=false; controls.forEach(control => { control.disabled=false; });
+        uploading=false; controls.forEach(control => { control.disabled=false; }); setUploadTarget(uploadTarget);
         $('uploadForm').removeAttribute('aria-busy'); $('uploadProgress').hidden=true;
     }
 });
 window.addEventListener('beforeunload', event => { if (uploading) { event.preventDefault(); event.returnValue=''; } });
 
-function openDialog(title,description,label,value,action,danger=false,readonly=false) {
+function openDialog(title,description,label,value,action,danger=false,readonly=false,fields='') {
+    $('dialogSelectField').hidden=fields!=='category';
+    $('dialogMoveFields').hidden=fields!=='move';
     $('dialogTitle').textContent=title; $('dialogDescription').textContent=description;
     $('dialogField').hidden=label===null; $('dialogInputLabel').textContent=label || '';
     $('dialogInput').value=value || ''; $('dialogInput').readOnly=readonly; $('dialogInput').required=Boolean(label)&&!readonly;
     $('dialogError').hidden=true; $('dialogConfirm').textContent=danger ? 'Удалить' : readonly ? 'Готово' : 'Сохранить';
     $('dialogConfirm').className='button ' + (danger ? 'danger' : 'primary');
     dialogAction=action; dialog.showModal();
-    if (label) { $('dialogInput').focus(); $('dialogInput').select(); } else $('dialogCancel').focus();
+    if (fields==='category') $('dialogSelect').focus(); else if (fields==='move') $('moveZone').focus(); else if (label) { $('dialogInput').focus(); $('dialogInput').select(); } else $('dialogCancel').focus();
 }
 $('dialogCancel').addEventListener('click', () => dialog.close());
 $('dialogForm').addEventListener('submit', async event => {
     event.preventDefault();
     $('dialogConfirm').disabled=true; $('dialogError').hidden=true;
-    try { if (dialogAction) await dialogAction($('dialogInput').value); dialog.close(); }
+    try { if (dialogAction) await dialogAction($('dialogInput').value, $('dialogSelect').value); dialog.close(); }
     catch (error) { $('dialogError').textContent=error.message; $('dialogError').hidden=false; }
     finally { $('dialogConfirm').disabled=false; }
 });
@@ -501,25 +586,92 @@ async function copyURL(url,description) {
     try { await navigator.clipboard.writeText(url); showStatus(description); }
     catch { openDialog('Копирование ссылки','Выделите и скопируйте ссылку. Открыть её можно после входа в файловый менеджер.','Ссылка',url,null,false,true); }
 }
+function folderName(value) {
+    const name=value.trim();
+    if (!name) throw new Error('Укажите имя папки.');
+    if (/[/\\\u0000]/.test(name)) throw new Error('Имя папки не может содержать слеши.');
+    if (name.startsWith('.')) throw new Error('Имя папки не может начинаться с точки.');
+    return name;
+}
+function folderQuery(params) { return '?' + new URLSearchParams(params).toString(); }
+// Destination folders come from the tree already on the page.
+function updateMoveFields(preferredPath) {
+    const scope=$('moveZone').value, category=$('moveCategory').value;
+    const paths=Array.from(document.querySelectorAll('.folder'))
+        .filter(folder => folder.dataset.scope===scope && folder.dataset.category===category)
+        .map(folder => folder.dataset.path)
+        .sort((a,b) => a.localeCompare(b,'ru',{ numeric:true }));
+    $('moveFolder').replaceChildren(new Option('Без папки — в корень категории',''), ...paths.map(p => new Option(p.split('/').join(' › '),p)));
+    $('moveFolder').value=paths.includes(preferredPath) ? preferredPath : '';
+    $('moveHint').textContent=scope==='my' ? 'Файл будет виден только вам.' : 'Файл увидят все участники.';
+}
+$('moveZone').addEventListener('change',() => updateMoveFields($('moveFolder').value));
+$('moveCategory').addEventListener('change',() => updateMoveFields($('moveFolder').value));
 document.addEventListener('click', async event => {
-    const button=event.target.closest('[data-copy],[data-delete],[data-rename],[data-delete-user]');
+    const button=event.target.closest('[data-copy],[data-delete],[data-rename],[data-move],[data-delete-user],[data-upload-here],[data-new-folder],[data-rename-folder],[data-delete-folder]');
     if (!button) return;
     if (uploading) { showStatus('Дождитесь завершения загрузки перед управлением файлами.',false); return; }
     const { scope,category,file }=button.dataset;
+    const path=button.dataset.path || '';
+    const fileTarget=() => '/' + [scope,category,file].map(encodeURIComponent).join('/');
     if (button.hasAttribute('data-copy')) {
-        const url=new URL(fileURL(scope,category,file),location.origin).href;
+        const url=new URL(fileURL(scope,category,file,path),location.origin).href;
         await copyURL(url,scope==='my' ? 'Ссылка скопирована. Этот файл доступен только вашему аккаунту.' : 'Ссылка скопирована. Для открытия требуется вход.');
     } else if (button.hasAttribute('data-rename')) {
         openDialog('Переименовать файл',file,'Новое имя',file,async value => {
             const name=value.trim();
             if (!name || name==='.' || name==='..' || /[/\\\u0000]/.test(name)) throw new Error('Укажите имя без слешей и служебных символов.');
             if (name===file) return;
-            const data=await apiCall('/rename/' + [scope,category,file].map(encodeURIComponent).join('/') + '?newName='+encodeURIComponent(name),{method:'POST'});
+            const params={ newName:name };
+            if (path) params.path=path;
+            const data=await apiCall('/rename' + fileTarget() + folderQuery(params),{method:'POST'});
             refresh(data.message);
         });
+    } else if (button.hasAttribute('data-move')) {
+        // Default: the other zone, same category, same folder when it exists there.
+        $('moveZone').value=scope==='shared' ? 'my' : 'shared';
+        $('moveCategory').value=category;
+        updateMoveFields(path);
+        openDialog('Переместить файл',`«${file}» из «${placeLabel(scope,category,path)}»`,null,'',async () => {
+            const toScope=$('moveZone').value, toCategory=$('moveCategory').value, toPath=$('moveFolder').value;
+            const params={ toScope, toCategory, toPath };
+            if (path) params.path=path;
+            const data=await apiCall('/move' + fileTarget() + folderQuery(params),{method:'POST'});
+            if (toPath) rememberOpen(toScope,toCategory,toPath);
+            refresh(data.message);
+        },false,false,'move');
+        $('dialogConfirm').textContent='Переместить';
     } else if (button.hasAttribute('data-delete')) {
         openDialog('Удалить файл?',`«${file}» будет удалён. Восстановить его через приложение нельзя.`,null,'',async () => {
-            const data=await apiCall('/delete/' + [scope,category,file].map(encodeURIComponent).join('/'),{method:'DELETE'}); refresh(data.message);
+            const data=await apiCall('/delete' + fileTarget() + (path ? folderQuery({ path }) : ''),{method:'DELETE'}); refresh(data.message);
+        },true);
+    } else if (button.hasAttribute('data-upload-here')) {
+        setUploadTarget({ scope, category, path });
+        $('uploadForm').scrollIntoView({ behavior:'smooth', block:'start' });
+        showStatus(`Файлы будут загружены в «${placeLabel(scope,category,path)}». Выберите их в форме загрузки.`);
+        $('fileInput').focus({ preventScroll:true });
+    } else if (button.hasAttribute('data-new-folder')) {
+        const inside=category ? placeLabel(scope,category,path) : zoneTitles[scope];
+        openDialog('Новая папка',`Где: ${inside}`,'Имя папки','',async (value,chosen) => {
+            const name=folderName(value);
+            const target=category || chosen;
+            const data=await apiCall('/folders/' + [scope,target].map(encodeURIComponent).join('/') + folderQuery({ path, name }),{method:'POST'});
+            rememberOpen(scope,target,path ? `${path}/${name}` : name);
+            refresh(data.message);
+        },false,false,category ? '' : 'category');
+    } else if (button.hasAttribute('data-rename-folder')) {
+        const old=button.dataset.name;
+        openDialog('Переименовать папку',placeLabel(scope,category,path),'Новое имя',old,async value => {
+            const name=folderName(value);
+            if (name===old) return;
+            const data=await apiCall('/folders/' + [scope,category].map(encodeURIComponent).join('/') + '/rename' + folderQuery({ path, newName:name }),{method:'POST'});
+            const parent=path.split('/').slice(0,-1).join('/');
+            rememberOpen(scope,category,parent ? `${parent}/${name}` : name);
+            refresh(data.message);
+        });
+    } else if (button.hasAttribute('data-delete-folder')) {
+        openDialog('Удалить папку?',`Папка «${button.dataset.name}» будет удалена. Удалить можно только пустую папку: сначала удалите или перенесите файлы.`,null,'',async () => {
+            const data=await apiCall('/folders/' + [scope,category].map(encodeURIComponent).join('/') + folderQuery({ path }),{method:'DELETE'}); refresh(data.message);
         },true);
     } else {
         const username=button.dataset.deleteUser;

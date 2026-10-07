@@ -185,6 +185,70 @@ pub fn file_path(
     Ok(base.join(rel.to_path_buf()).join(name))
 }
 
+fn exists_error(e: io::Error) -> StorageError {
+    if e.kind() == io::ErrorKind::AlreadyExists {
+        StorageError::Exists
+    } else {
+        StorageError::from(e)
+    }
+}
+
+/// Create folder `name` inside `parent` (the category directory itself is
+/// created when missing). Fails instead of reusing an existing name.
+/// Shared by the Mini App API and the web UI.
+pub fn create_folder(
+    config: &AppConfig,
+    zone: Zone,
+    username: &str,
+    category: &str,
+    parent: &RelPath,
+    name: &str,
+) -> Result<(RelPath, PathBuf), StorageError> {
+    let folder = parent.join(name).map_err(StorageError::Path)?;
+    let base = category_dir(config, zone, username, category)?;
+    fs::create_dir_all(&base)?;
+    let parent_dir = folder_dir(config, zone, username, category, parent)?;
+    if !parent_dir.is_dir() {
+        return Err(StorageError::NotFound);
+    }
+    let dir = folder_dir(config, zone, username, category, &folder)?;
+    fs::create_dir(&dir).map_err(exists_error)?;
+    Ok((folder, dir))
+}
+
+/// Rename the last segment of a folder; refuses to replace an existing entry.
+pub fn rename_folder(
+    config: &AppConfig,
+    zone: Zone,
+    username: &str,
+    category: &str,
+    rel: &RelPath,
+    new_name: &str,
+) -> Result<(RelPath, PathBuf), StorageError> {
+    let parent = rel.parent().ok_or(StorageError::Path("Выберите папку"))?;
+    let new_rel = parent.join(new_name).map_err(StorageError::Path)?;
+    let old_path = folder_dir(config, zone, username, category, rel)?;
+    let new_path = folder_dir(config, zone, username, category, &new_rel)?;
+    if !old_path.is_dir() {
+        return Err(StorageError::NotFound);
+    }
+    if fs::symlink_metadata(&new_path).is_ok() {
+        return Err(StorageError::Exists);
+    }
+    fs::rename(&old_path, &new_path)?;
+    Ok((new_rel, new_path))
+}
+
+/// Delete a folder only when it is empty: until a trash exists, a folder
+/// operation never removes files.
+pub fn remove_empty_folder(path: &Path) -> Result<(), StorageError> {
+    match fs::remove_dir(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::DirectoryNotEmpty => Err(StorageError::NotEmpty),
+        Err(e) => Err(e.into()),
+    }
+}
+
 pub fn format_bytes(bytes: u64) -> String {
     if bytes == 0 {
         return "0 B".to_string();

@@ -835,6 +835,23 @@ async fn signed_links_download_ranges_and_expire_on_revoke() {
     );
     assert_eq!(test::read_body(resp).await.as_ref(), b"2345");
 
+    // Telegram's downloadFile asks for the size with HEAD first: it must get the
+    // file's headers and length (the server drops the body), not a fallback 401.
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::default()
+            .method(actix_web::http::Method::HEAD)
+            .uri(&url)
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert!(resp.headers().contains_key(header::CONTENT_DISPOSITION));
+    assert_eq!(
+        actix_web::body::MessageBody::size(resp.response().body()),
+        actix_web::body::BodySize::Sized(10)
+    );
+
     // SVG is never inline, even when asked for.
     let (_, l) = send(&app, link(svg["id"].as_str().unwrap(), "inline")).await;
     let resp = test::call_service(

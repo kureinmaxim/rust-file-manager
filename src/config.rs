@@ -73,6 +73,8 @@ fn non_empty(name: &str) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+// Only TG_DEV_PUBLIC_KEY uses it, and only debug builds read that variable.
+#[cfg(debug_assertions)]
 fn parse_hex32(hex: &str) -> Option<[u8; 32]> {
     let hex = hex.trim();
     if hex.len() != 64 {
