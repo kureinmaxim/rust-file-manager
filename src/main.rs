@@ -6,6 +6,8 @@ mod auth;
 mod categories;
 mod config;
 mod files;
+#[cfg(test)]
+mod files_tests;
 mod internal;
 mod miniapp;
 mod paths;
@@ -24,7 +26,6 @@ use actix_session::{storage::CookieSessionStore, SessionMiddleware};
 use actix_web::cookie::{time::Duration, SameSite};
 use actix_web::middleware::{from_fn, Logger};
 use actix_web::{web, App, HttpServer};
-use handlebars::Handlebars;
 
 use crate::config::AppConfig;
 
@@ -98,11 +99,7 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
-    let mut handlebars = Handlebars::new();
-    handlebars
-        .register_template_string("index", include_str!("../templates/index.html"))
-        .expect("invalid index template");
-    let handlebars = web::Data::new(handlebars);
+    let handlebars = web::Data::new(files::templates());
 
     let session_key = config.session_key();
     let token_keys = web::Data::new(tokens::TokenKeys::derive(&config.secret));
@@ -191,7 +188,10 @@ async fn main() -> std::io::Result<()> {
                     .service(files::upload)
                     .service(files::delete_file)
                     .service(files::rename_file)
-                    .service(files::download),
+                    .service(files::download)
+                    .service(files::create_folder)
+                    .service(files::rename_folder)
+                    .service(files::delete_folder),
             )
     })
     .bind(&config.bind_addr)?

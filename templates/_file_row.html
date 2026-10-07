@@ -1,0 +1,10 @@
+<li class="file-row" data-name="{{name}}" data-size="{{size_bytes}}" data-modified="{{modified}}">
+    <span class="file-icon" aria-hidden="true">FILE</span>
+    <div class="file-content"><a class="file-link" href="{{url}}" download>{{name}}</a><div class="file-meta"><span>{{size}}</span><time data-timestamp="{{modified}}"></time></div></div>
+    <div class="file-actions">
+        <a class="icon-button" href="{{url}}" download title="Скачать" aria-label="Скачать {{name}}"><svg class="icon" aria-hidden="true"><use href="#download"/></svg></a>
+        <button class="icon-button" type="button" data-copy data-scope="{{scope}}" data-category="{{category}}" data-path="{{path}}" data-file="{{name}}" title="Копировать ссылку" aria-label="Копировать ссылку на {{name}}"><svg class="icon" aria-hidden="true"><use href="#link"/></svg></button>
+        <button class="icon-button" type="button" data-rename data-scope="{{scope}}" data-category="{{category}}" data-path="{{path}}" data-file="{{name}}" title="Переименовать" aria-label="Переименовать {{name}}"><svg class="icon" aria-hidden="true"><use href="#edit"/></svg></button>
+        <button class="icon-button danger" type="button" data-delete data-scope="{{scope}}" data-category="{{category}}" data-path="{{path}}" data-file="{{name}}" title="Удалить" aria-label="Удалить {{name}}"><svg class="icon" aria-hidden="true"><use href="#trash"/></svg></button>
+    </div>
+</li>

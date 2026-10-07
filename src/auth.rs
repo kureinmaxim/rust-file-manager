@@ -25,7 +25,10 @@ struct LoginResponse {
 }
 
 fn json_err(status: actix_web::http::StatusCode, message: impl Into<String>) -> HttpResponse {
-    HttpResponse::build(status).json(LoginResponse { success: false, message: message.into() })
+    HttpResponse::build(status).json(LoginResponse {
+        success: false,
+        message: message.into(),
+    })
 }
 
 /// Logged-in user taken from the session cookie.
@@ -37,8 +40,21 @@ pub struct CurrentUser {
 
 pub fn current_user(session: &Session) -> Option<CurrentUser> {
     let username = session.get::<String>(SESSION_USER_KEY).ok().flatten()?;
-    let is_admin = session.get::<bool>(SESSION_ADMIN_KEY).ok().flatten().unwrap_or(false);
+    let is_admin = session
+        .get::<bool>(SESSION_ADMIN_KEY)
+        .ok()
+        .flatten()
+        .unwrap_or(false);
     Some(CurrentUser { username, is_admin })
+}
+
+/// Tests sign in without going through bcrypt.
+#[cfg(test)]
+pub fn sign_in_for_tests(session: &Session, username: &str, is_admin: bool) {
+    session.insert(SESSION_USER_KEY, username).expect("session");
+    session
+        .insert(SESSION_ADMIN_KEY, is_admin)
+        .expect("session");
 }
 
 /// Middleware guard: every route behind it requires a logged-in session.
@@ -96,7 +112,10 @@ pub async fn require_admin(
     let (req, _) = req.into_parts();
     Ok(ServiceResponse::new(
         req,
-        json_err(actix_web::http::StatusCode::FORBIDDEN, "Доступно только администратору"),
+        json_err(
+            actix_web::http::StatusCode::FORBIDDEN,
+            "Доступно только администратору",
+        ),
     ))
 }
 

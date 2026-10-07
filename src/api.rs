@@ -23,9 +23,10 @@ use serde_json::json;
 
 use crate::categories::{category_for_extension, category_rel_dir};
 use crate::config::AppConfig;
-use crate::paths::{validate_segment, RelPath};
+use crate::paths::RelPath;
 use crate::ratelimit::RateLimiter;
 use crate::reply::{self, now_secs};
+use crate::storage;
 use crate::storage::{
     category_dir, category_listing, decode_id, dir_stats, disk_usage, encode_id, exact_file_name,
     file_path, folder_dir, publish_file, read_dir_entries, walk, DirEntry, ItemRef, StorageError,
@@ -877,10 +878,6 @@ async fn rename_item(
 ) -> HttpResponse {
     let result = (|| -> Result<Item, StorageError> {
         let (item, old_path) = resolve(&config, &user, &id)?;
-        let parent_dir = old_path
-            .parent()
-            .ok_or(StorageError::NotFound)?
-            .to_path_buf();
         match &item.name {
             Some(old_name) => {
                 if !old_path.is_file() {
@@ -914,17 +911,14 @@ async fn rename_item(
                 )
             }
             None => {
-                let new_name = validate_segment(&body.new_name).map_err(StorageError::Path)?;
-                let parent = item.path.parent().unwrap_or_default();
-                let new_rel = parent.join(new_name).map_err(StorageError::Path)?;
-                let new_path = parent_dir.join(new_name);
-                if !old_path.is_dir() {
-                    return Err(StorageError::NotFound);
-                }
-                if fs::symlink_metadata(&new_path).is_ok() {
-                    return Err(StorageError::Exists);
-                }
-                fs::rename(&old_path, &new_path)?;
+                let (new_rel, new_path) = storage::rename_folder(
+                    &config,
+                    item.zone,
+                    &user.username,
+                    &item.category,
+                    &item.path,
+                    &body.new_name,
+                )?;
                 tracing::info!(user = %user.username, to = %new_rel, "folder renamed (Mini App)");
                 describe(
                     &ItemRef {
@@ -958,14 +952,8 @@ async fn delete_item(
             tracing::info!(user = %user.username, scope = item.zone.as_str(), category = %item.category, "file deleted (Mini App)");
             Ok("Файл удалён")
         } else {
-            // Until the trash exists only empty folders can be deleted.
-            match fs::remove_dir(&path) {
-                Ok(()) => Ok("Папка удалена"),
-                Err(e) if e.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
-                    Err(StorageError::NotEmpty)
-                }
-                Err(e) => Err(e.into()),
-            }
+            storage::remove_empty_folder(&path)?;
+            Ok("Папка удалена")
         }
     })();
     match result {
@@ -992,21 +980,14 @@ async fn create_folder(
     let result = (|| -> Result<Item, StorageError> {
         let zone = Zone::parse(&body.scope).ok_or(StorageError::Zone)?;
         let parent = RelPath::parse(&body.path).map_err(StorageError::Path)?;
-        let folder = parent.join(&body.name).map_err(StorageError::Path)?;
-        let base = category_dir(&config, zone, &user.username, &body.category)?;
-        fs::create_dir_all(&base)?;
-        let parent_dir = folder_dir(&config, zone, &user.username, &body.category, &parent)?;
-        if !parent_dir.is_dir() {
-            return Err(StorageError::NotFound);
-        }
-        let dir = folder_dir(&config, zone, &user.username, &body.category, &folder)?;
-        fs::create_dir(&dir).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::AlreadyExists {
-                StorageError::Exists
-            } else {
-                StorageError::from(e)
-            }
-        })?;
+        let (folder, dir) = storage::create_folder(
+            &config,
+            zone,
+            &user.username,
+            &body.category,
+            &parent,
+            &body.name,
+        )?;
         tracing::info!(user = %user.username, scope = zone.as_str(), category = %body.category, folder = %folder, "folder created");
         describe(
             &ItemRef {
