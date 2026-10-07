@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -14,14 +14,12 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::auth::{current_user, CurrentUser};
-use crate::categories::{
-    category_for_extension, category_rel_dir, sanitize_file_name, BACKUP_FOLDERS, BACKUP_PARENT,
-    FILE_CATEGORIES,
-};
+use crate::categories::{category_for_extension, category_rel_dir, sanitize_file_name};
 use crate::config::AppConfig;
-
-pub const SHARED_DIR: &str = "shared";
-pub const HOME_DIR: &str = "home";
+use crate::storage::{
+    category_listing, encode_url_segment, folder_size, format_bytes, PendingUpload, HOME_DIR,
+    SHARED_DIR,
+};
 
 #[derive(Serialize)]
 struct CategoryFiles {
@@ -89,32 +87,6 @@ fn unauthorized() -> HttpResponse {
     )
 }
 
-pub fn format_bytes(bytes: u64) -> String {
-    if bytes == 0 {
-        return "0 B".to_string();
-    }
-    let units = ["B", "KB", "MB", "GB", "TB"];
-    let i = ((bytes as f64).log(1024.0).floor() as usize).min(units.len() - 1);
-    format!("{:.2} {}", bytes as f64 / 1024f64.powi(i as i32), units[i])
-}
-
-fn folder_size(path: &Path) -> u64 {
-    let Ok(entries) = fs::read_dir(path) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .map(|entry| {
-            let p = entry.path();
-            if p.is_dir() {
-                folder_size(&p)
-            } else {
-                fs::metadata(&p).map(|m| m.len()).unwrap_or(0)
-            }
-        })
-        .sum()
-}
-
 /// Root directory of a zone: `shared/` is visible to everyone, `my` maps to
 /// the per-user `home/<username>/` directory nobody else can reach — the
 /// username comes from the session, never from the URL.
@@ -142,34 +114,6 @@ fn safe_path(
     let name =
         sanitize_file_name(file_name).ok_or_else(|| bad_request("Недопустимое имя файла"))?;
     Ok(root.join(rel_dir).join(name))
-}
-
-/// Category ids paired with their UI titles: regular categories first, then
-/// the backup folders shown as «Бэкапы — <folder>».
-fn category_listing() -> Vec<(String, String)> {
-    FILE_CATEGORIES
-        .iter()
-        .map(|(c, _)| (c.to_string(), c.to_string()))
-        .chain(
-            BACKUP_FOLDERS
-                .iter()
-                .map(|f| (f.to_string(), format!("💾 {BACKUP_PARENT} — {f}"))),
-        )
-        .collect()
-}
-
-/// Encode each URL segment independently: filenames may contain #, ?, % or +.
-fn encode_url_segment(value: &str) -> String {
-    let mut encoded = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
-            encoded.push(byte as char);
-        } else {
-            use std::fmt::Write as _;
-            write!(&mut encoded, "%{byte:02X}").expect("writing to a String");
-        }
-    }
-    encoded
 }
 
 fn list_zone(root: &Path, scope: &str) -> Vec<CategoryFiles> {
@@ -324,68 +268,6 @@ pub struct UploadQuery {
     /// Explicit target category (e.g. a backup folder). When absent the
     /// category is derived from the file extension.
     category: Option<String>,
-}
-
-/// An interrupted multipart stream must not leave a truncated file behind.
-struct PendingUpload {
-    path: PathBuf,
-    file: Option<fs::File>,
-    complete: bool,
-}
-
-impl PendingUpload {
-    fn create(dir: &Path, name: &str) -> io::Result<Self> {
-        let original = Path::new(name);
-        let stem = original
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("file");
-        let extension = original.extension().and_then(|s| s.to_str()).unwrap_or("");
-        for counter in 0u64.. {
-            let candidate = if counter == 0 {
-                name.to_string()
-            } else if extension.is_empty() {
-                format!("{stem}({counter})")
-            } else {
-                format!("{stem}({counter}).{extension}")
-            };
-            let path = dir.join(candidate);
-            match fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
-                Ok(file) => {
-                    return Ok(Self {
-                        path,
-                        file: Some(file),
-                        complete: false,
-                    })
-                }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error),
-            }
-        }
-        unreachable!("exhausted filename suffixes")
-    }
-
-    fn finish(&mut self) -> io::Result<()> {
-        if let Some(file) = self.file.as_mut() {
-            file.flush()?;
-        }
-        self.file.take();
-        self.complete = true;
-        Ok(())
-    }
-}
-
-impl Drop for PendingUpload {
-    fn drop(&mut self) {
-        self.file.take();
-        if !self.complete {
-            let _ = fs::remove_file(&self.path);
-        }
-    }
 }
 
 #[post("/upload/{scope}")]
@@ -547,59 +429,4 @@ pub async fn rename_file(
         format!("Файл переименован: {} → {}", file_name, query.new_name),
         None,
     ))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_directory() -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "rfm-upload-{}-{}",
-            std::process::id(),
-            rand::random::<u64>()
-        ));
-        fs::create_dir_all(&path).unwrap();
-        path
-    }
-
-    #[test]
-    fn url_segments_preserve_special_and_unicode_names() {
-        assert_eq!(encode_url_segment("a #?%+.txt"), "a%20%23%3F%25%2B.txt");
-        assert_eq!(
-            encode_url_segment("тест.txt"),
-            "%D1%82%D0%B5%D1%81%D1%82.txt"
-        );
-        assert_eq!(encode_url_segment("../a"), "..%2Fa");
-    }
-
-    #[test]
-    fn simultaneous_uploads_reserve_distinct_names() {
-        let dir = test_directory();
-        let mut first = PendingUpload::create(&dir, "report.txt").unwrap();
-        let mut second = PendingUpload::create(&dir, "report.txt").unwrap();
-        assert_ne!(first.path, second.path);
-        first.file.as_mut().unwrap().write_all(b"first").unwrap();
-        second.file.as_mut().unwrap().write_all(b"second").unwrap();
-        first.finish().unwrap();
-        second.finish().unwrap();
-        assert_eq!(fs::read(&first.path).unwrap(), b"first");
-        assert_eq!(fs::read(&second.path).unwrap(), b"second");
-        fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn incomplete_uploads_are_removed_but_completed_files_survive() {
-        let dir = test_directory();
-        let partial = PendingUpload::create(&dir, "incomplete.txt").unwrap();
-        let path = partial.path.clone();
-        drop(partial);
-        assert!(!path.exists());
-        let mut complete = PendingUpload::create(&dir, "complete.txt").unwrap();
-        complete.finish().unwrap();
-        let path = complete.path.clone();
-        drop(complete);
-        assert!(path.exists());
-        fs::remove_dir_all(dir).unwrap();
-    }
 }

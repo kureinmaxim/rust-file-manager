@@ -1,0 +1,22 @@
+# socat bridge: lets the TelegramOnly bot (Docker bridge network) reach the
+# internal API that listens on 127.0.0.1:8091 on the host.
+# Replace 172.18.0.1 with the gateway of the bot's compose network
+# (`docker network inspect <project>_default`), see TelegramOnly DEPLOY.md §8.9.
+# Install:
+#   sudo install -m 0644 deploy/rfm-internal-bridge.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now rfm-internal-bridge
+
+[Unit]
+Description=socat bridge: docker gateway -> rust-file-manager internal API
+After=docker.service rust-file-manager.service
+Requires=docker.service
+
+[Service]
+ExecStart=/usr/bin/socat TCP-LISTEN:8091,bind=172.18.0.1,fork,reuseaddr TCP:127.0.0.1:8091
+Restart=always
+RestartSec=3
+DynamicUser=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
