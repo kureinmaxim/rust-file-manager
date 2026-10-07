@@ -37,7 +37,11 @@ hkdf = "0.12"
 subtle = "2"
 libc = "0.2"
 serde_urlencoded = "0.7"
+mime_guess = "2"
 
 [profile.release]
 lto = true
 strip = true
+
+[dev-dependencies]
+actix-http = "3"

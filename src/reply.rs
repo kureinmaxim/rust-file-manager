@@ -26,6 +26,14 @@ pub fn error(status: StatusCode, code: &str, message: impl Into<String>) -> Http
     }))
 }
 
+/// Error with extra fields (e.g. `offset`); `success: false` is added.
+pub fn error_with(status: StatusCode, mut body: Value) -> HttpResponse {
+    if let Value::Object(map) = &mut body {
+        map.insert("success".into(), Value::Bool(false));
+    }
+    HttpResponse::build(status).json(body)
+}
+
 pub fn bad_request(message: impl Into<String>) -> HttpResponse {
     error(StatusCode::BAD_REQUEST, "bad_request", message)
 }

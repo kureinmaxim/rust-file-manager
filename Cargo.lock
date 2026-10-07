@@ -1691,6 +1691,7 @@ name = "rust-file-manager"
 version = "1.4.0"
 dependencies = [
  "actix-files",
+ "actix-http",
  "actix-multipart",
  "actix-session",
  "actix-web",
@@ -1703,6 +1704,7 @@ dependencies = [
  "hkdf",
  "hmac",
  "libc",
+ "mime_guess",
  "rand 0.8.6",
  "serde",
  "serde_json",

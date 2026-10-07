@@ -69,7 +69,11 @@ async fn require_service_token(
     let (req, _) = req.into_parts();
     Ok(ServiceResponse::new(
         req,
-        reply::error(StatusCode::UNAUTHORIZED, "unauthorized", "Неверный служебный токен"),
+        reply::error(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "Неверный служебный токен",
+        ),
     ))
 }
 
@@ -106,9 +110,9 @@ async fn get_tg_links(config: web::Data<AppConfig>, store: web::Data<UserStore>)
         .telegram_links(&config.admin_username)
         .into_iter()
         .filter_map(|a| {
-            a.telegram_id.map(|id| {
-                json!({ "telegram_id": id, "username": a.username, "is_admin": a.is_admin })
-            })
+            a.telegram_id.map(
+                |id| json!({ "telegram_id": id, "username": a.username, "is_admin": a.is_admin }),
+            )
         })
         .collect();
     reply::ok(json!({ "links": links }))
@@ -126,7 +130,9 @@ async fn get_resolve(
     store: web::Data<UserStore>,
 ) -> HttpResponse {
     match store.account_by_telegram(query.telegram_id, &config.admin_username) {
-        Some(a) => reply::ok(json!({ "linked": true, "username": a.username, "is_admin": a.is_admin })),
+        Some(a) => {
+            reply::ok(json!({ "linked": true, "username": a.username, "is_admin": a.is_admin }))
+        }
         None => reply::ok(json!({ "linked": false })),
     }
 }
@@ -165,10 +171,12 @@ async fn post_invite(
         Ok(i) => i,
         Err(e) => return reply::error(StatusCode::INTERNAL_SERVER_ERROR, "save_failed", e),
     };
-    let tg_url = config
-        .telegram
-        .as_ref()
-        .map(|t| format!("https://t.me/{}?startapp=inv_{}", t.bot_username, invite.token));
+    let tg_url = config.telegram.as_ref().map(|t| {
+        format!(
+            "https://t.me/{}?startapp=inv_{}",
+            t.bot_username, invite.token
+        )
+    });
     let web_url = config
         .public_base_url
         .as_ref()
@@ -184,15 +192,19 @@ async fn post_invite(
 
 fn link_error(e: LinkError) -> HttpResponse {
     match e {
-        LinkError::NoUser => reply::error(StatusCode::NOT_FOUND, "no_user", "Пользователь не найден"),
+        LinkError::NoUser => {
+            reply::error(StatusCode::NOT_FOUND, "no_user", "Пользователь не найден")
+        }
         LinkError::AlreadyLinked => reply::error(
             StatusCode::CONFLICT,
             "already_linked",
             "Telegram или аккаунт уже привязаны",
         ),
-        LinkError::NotLinked => {
-            reply::error(StatusCode::NOT_FOUND, "not_linked", "Этот Telegram не привязан")
-        }
+        LinkError::NotLinked => reply::error(
+            StatusCode::NOT_FOUND,
+            "not_linked",
+            "Этот Telegram не привязан",
+        ),
         LinkError::Save(e) => reply::error(StatusCode::INTERNAL_SERVER_ERROR, "save_failed", e),
     }
 }
@@ -277,7 +289,9 @@ mod tests {
             App::new()
                 .app_data(env.config.clone())
                 .app_data(env.store.clone())
-                .app_data(web::Data::new(ServerInfo { started: Instant::now() }))
+                .app_data(web::Data::new(ServerInfo {
+                    started: Instant::now(),
+                }))
                 .configure(configure),
         )
         .await;
@@ -294,8 +308,17 @@ mod tests {
     #[actix_web::test]
     async fn rejects_missing_and_wrong_token() {
         let env = env();
-        for token in [None, Some("wrong"), Some("internal-test-token-0123456789abcdeX")] {
-            let (status, body) = call(&env, test::TestRequest::get().uri("/internal/v1/health"), token).await;
+        for token in [
+            None,
+            Some("wrong"),
+            Some("internal-test-token-0123456789abcdeX"),
+        ] {
+            let (status, body) = call(
+                &env,
+                test::TestRequest::get().uri("/internal/v1/health"),
+                token,
+            )
+            .await;
             assert_eq!(status, StatusCode::UNAUTHORIZED);
             assert_eq!(body["code"], "unauthorized");
         }
@@ -304,37 +327,81 @@ mod tests {
     #[actix_web::test]
     async fn health_status_links_resolve() {
         let env = env();
-        let (s, b) = call(&env, test::TestRequest::get().uri("/internal/v1/health"), Some(TOKEN)).await;
-        assert_eq!((s, b["success"].clone()), (StatusCode::OK, Value::Bool(true)));
+        let (s, b) = call(
+            &env,
+            test::TestRequest::get().uri("/internal/v1/health"),
+            Some(TOKEN),
+        )
+        .await;
+        assert_eq!(
+            (s, b["success"].clone()),
+            (StatusCode::OK, Value::Bool(true))
+        );
         assert_eq!(b["version"], env!("CARGO_PKG_VERSION"));
 
-        let (_, b) = call(&env, test::TestRequest::get().uri("/internal/v1/status"), Some(TOKEN)).await;
+        let (_, b) = call(
+            &env,
+            test::TestRequest::get().uri("/internal/v1/status"),
+            Some(TOKEN),
+        )
+        .await;
         assert_eq!(b["users"], 2);
         assert_eq!(b["telegram_linked"], 2);
         assert!(b["uptime_secs"].is_u64());
 
-        let (_, b) = call(&env, test::TestRequest::get().uri("/internal/v1/tg-links"), Some(TOKEN)).await;
+        let (_, b) = call(
+            &env,
+            test::TestRequest::get().uri("/internal/v1/tg-links"),
+            Some(TOKEN),
+        )
+        .await;
         let links = b["links"].as_array().unwrap();
         assert!(links.contains(&json!({"telegram_id": 111, "username": "admin", "is_admin": true})));
         assert!(links.contains(&json!({"telegram_id": 222, "username": "bob", "is_admin": false})));
 
-        let (_, b) = call(&env, test::TestRequest::get().uri("/internal/v1/resolve?telegram_id=222"), Some(TOKEN)).await;
-        assert_eq!(b, json!({"success": true, "linked": true, "username": "bob", "is_admin": false}));
-        let (_, b) = call(&env, test::TestRequest::get().uri("/internal/v1/resolve?telegram_id=5"), Some(TOKEN)).await;
+        let (_, b) = call(
+            &env,
+            test::TestRequest::get().uri("/internal/v1/resolve?telegram_id=222"),
+            Some(TOKEN),
+        )
+        .await;
+        assert_eq!(
+            b,
+            json!({"success": true, "linked": true, "username": "bob", "is_admin": false})
+        );
+        let (_, b) = call(
+            &env,
+            test::TestRequest::get().uri("/internal/v1/resolve?telegram_id=5"),
+            Some(TOKEN),
+        )
+        .await;
         assert_eq!(b, json!({"success": true, "linked": false}));
     }
 
     #[actix_web::test]
     async fn invites_require_fm_admin() {
         let env = env();
-        let req = |id: i64| test::TestRequest::post().uri("/internal/v1/invites").set_json(json!({"telegram_id": id}));
+        let req = |id: i64| {
+            test::TestRequest::post()
+                .uri("/internal/v1/invites")
+                .set_json(json!({"telegram_id": id}))
+        };
         let (s, b) = call(&env, req(222), Some(TOKEN)).await;
-        assert_eq!((s, b["code"].as_str()), (StatusCode::FORBIDDEN, Some("not_admin")));
+        assert_eq!(
+            (s, b["code"].as_str()),
+            (StatusCode::FORBIDDEN, Some("not_admin"))
+        );
         let (s, b) = call(&env, req(111), Some(TOKEN)).await;
         assert_eq!(s, StatusCode::OK);
         let token = b["token"].as_str().unwrap();
-        assert_eq!(b["tg_url"], format!("https://t.me/files_test_bot?startapp=inv_{token}"));
-        assert_eq!(b["web_url"], format!("https://files.example.com/register?token={token}"));
+        assert_eq!(
+            b["tg_url"],
+            format!("https://t.me/files_test_bot?startapp=inv_{token}")
+        );
+        assert_eq!(
+            b["web_url"],
+            format!("https://files.example.com/register?token={token}")
+        );
         assert!(env.store.invite_valid(token));
     }
 
@@ -348,13 +415,25 @@ mod tests {
                 .set_json(json!({"admin_telegram_id": admin, "telegram_id": tg, "username": user}))
         };
         let (s, b) = call(&env, bind_req(222, 444, "sergey"), Some(TOKEN)).await;
-        assert_eq!((s, b["code"].as_str()), (StatusCode::FORBIDDEN, Some("not_admin")));
+        assert_eq!(
+            (s, b["code"].as_str()),
+            (StatusCode::FORBIDDEN, Some("not_admin"))
+        );
         let (s, b) = call(&env, bind_req(111, 444, "Sergey"), Some(TOKEN)).await;
-        assert_eq!((s, b["username"].as_str()), (StatusCode::OK, Some("sergey")));
+        assert_eq!(
+            (s, b["username"].as_str()),
+            (StatusCode::OK, Some("sergey"))
+        );
         let (s, b) = call(&env, bind_req(111, 444, "bob"), Some(TOKEN)).await;
-        assert_eq!((s, b["code"].as_str()), (StatusCode::CONFLICT, Some("already_linked")));
+        assert_eq!(
+            (s, b["code"].as_str()),
+            (StatusCode::CONFLICT, Some("already_linked"))
+        );
         let (s, b) = call(&env, bind_req(111, 555, "nobody"), Some(TOKEN)).await;
-        assert_eq!((s, b["code"].as_str()), (StatusCode::NOT_FOUND, Some("no_user")));
+        assert_eq!(
+            (s, b["code"].as_str()),
+            (StatusCode::NOT_FOUND, Some("no_user"))
+        );
 
         let unbind_req = |tg: i64| {
             test::TestRequest::post()
@@ -362,9 +441,18 @@ mod tests {
                 .set_json(json!({"admin_telegram_id": 111, "telegram_id": tg}))
         };
         let (s, b) = call(&env, unbind_req(444), Some(TOKEN)).await;
-        assert_eq!((s, b["username"].as_str()), (StatusCode::OK, Some("sergey")));
-        assert_eq!(env.store.account("sergey", "admin").unwrap().token_version, 1);
+        assert_eq!(
+            (s, b["username"].as_str()),
+            (StatusCode::OK, Some("sergey"))
+        );
+        assert_eq!(
+            env.store.account("sergey", "admin").unwrap().token_version,
+            1
+        );
         let (s, b) = call(&env, unbind_req(444), Some(TOKEN)).await;
-        assert_eq!((s, b["code"].as_str()), (StatusCode::NOT_FOUND, Some("not_linked")));
+        assert_eq!(
+            (s, b["code"].as_str()),
+            (StatusCode::NOT_FOUND, Some("not_linked"))
+        );
     }
 }

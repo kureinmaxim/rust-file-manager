@@ -100,7 +100,9 @@ fn telegram_from_env() -> Result<Option<TelegramConfig>, String> {
         .map(|u| u.trim_start_matches('@').to_string())
         .ok_or("MINIAPP_ENABLED=true requires TELEGRAM_BOT_USERNAME")?;
     if !(5..=32).contains(&bot_username.len())
-        || !bot_username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        || !bot_username
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
     {
         return Err("TELEGRAM_BOT_USERNAME must be 5-32 latin letters, digits or '_'".into());
     }
@@ -129,8 +131,12 @@ fn load_secret() -> Vec<u8> {
     match env::var("SESSION_SECRET") {
         Ok(b64) => match base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
             Ok(bytes) if bytes.len() >= 64 => return bytes,
-            Ok(_) => tracing::warn!("SESSION_SECRET decodes to fewer than 64 bytes; using a random key"),
-            Err(e) => tracing::warn!("SESSION_SECRET is not valid base64 ({e}); using a random key"),
+            Ok(_) => {
+                tracing::warn!("SESSION_SECRET decodes to fewer than 64 bytes; using a random key")
+            }
+            Err(e) => {
+                tracing::warn!("SESSION_SECRET is not valid base64 ({e}); using a random key")
+            }
         },
         Err(_) => tracing::info!("SESSION_SECRET not set; sessions will reset on every restart"),
     }
@@ -190,11 +196,14 @@ impl AppConfig {
             admin_password_hash,
             cookie_secure: env_flag("COOKIE_SECURE"),
             telegram: telegram_from_env()?,
-            public_base_url: non_empty("PUBLIC_BASE_URL").map(|u| u.trim_end_matches('/').to_string()),
+            public_base_url: non_empty("PUBLIC_BASE_URL")
+                .map(|u| u.trim_end_matches('/').to_string()),
             internal_bind_addr: non_empty("INTERNAL_BIND_ADDR"),
             internal_api_token,
-            max_chunked_file_size: env_number("MAX_CHUNKED_FILE_SIZE_MB", DEFAULT_MAX_CHUNKED_FILE_SIZE_MB)?
-                * 1024
+            max_chunked_file_size: env_number(
+                "MAX_CHUNKED_FILE_SIZE_MB",
+                DEFAULT_MAX_CHUNKED_FILE_SIZE_MB,
+            )? * 1024
                 * 1024,
             upload_chunk_size: env_number("UPLOAD_CHUNK_SIZE_MB", DEFAULT_UPLOAD_CHUNK_SIZE_MB)?
                 .clamp(1, 64)

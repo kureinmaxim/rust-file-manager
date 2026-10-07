@@ -75,6 +75,7 @@ pub enum StorageError {
     Symlink,
     NotFound,
     Exists,
+    NotEmpty,
     Io(io::Error),
 }
 
@@ -82,7 +83,7 @@ impl StorageError {
     pub fn status(&self) -> StatusCode {
         match self {
             Self::NotFound => StatusCode::NOT_FOUND,
-            Self::Exists => StatusCode::CONFLICT,
+            Self::Exists | Self::NotEmpty => StatusCode::CONFLICT,
             Self::Symlink => StatusCode::FORBIDDEN,
             Self::Io(e) if e.kind() == io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
             Self::Io(e) if is_out_of_space(e) => StatusCode::INSUFFICIENT_STORAGE,
@@ -95,6 +96,7 @@ impl StorageError {
         match self {
             Self::NotFound => "not_found",
             Self::Exists => "exists",
+            Self::NotEmpty => "not_empty",
             Self::Io(e) if is_out_of_space(e) => "no_space",
             _ => "bad_request",
         }
@@ -110,8 +112,11 @@ impl StorageError {
             Self::Symlink => "Символьные ссылки не поддерживаются".into(),
             Self::NotFound => "Файл или папка не найдены".into(),
             Self::Exists => "Файл или папка с таким именем уже существует".into(),
+            Self::NotEmpty => "Папка не пуста: сначала удалите или перенесите файлы".into(),
             Self::Io(e) if is_out_of_space(e) => "Недостаточно места на сервере".into(),
-            Self::Io(e) if e.kind() == io::ErrorKind::NotFound => "Файл или папка не найдены".into(),
+            Self::Io(e) if e.kind() == io::ErrorKind::NotFound => {
+                "Файл или папка не найдены".into()
+            }
             Self::Io(_) => "Ошибка файловой системы".into(),
         }
     }
@@ -119,7 +124,9 @@ impl StorageError {
 
 impl From<io::Error> for StorageError {
     fn from(e: io::Error) -> Self {
-        if e.get_ref().is_some_and(|inner| inner.is::<SymlinkRefused>()) {
+        if e.get_ref()
+            .is_some_and(|inner| inner.is::<SymlinkRefused>())
+        {
             return Self::Symlink;
         }
         Self::Io(e)
@@ -383,7 +390,8 @@ pub fn decode_id(id: &str) -> Result<ItemRef, StorageError> {
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(id)
         .map_err(|_| StorageError::Path("Недопустимый идентификатор"))?;
-    let text = String::from_utf8(bytes).map_err(|_| StorageError::Path("Недопустимый идентификатор"))?;
+    let text =
+        String::from_utf8(bytes).map_err(|_| StorageError::Path("Недопустимый идентификатор"))?;
     let parts: Vec<&str> = text.split('\0').collect();
     let [zone, category, path, name] = parts[..] else {
         return Err(StorageError::Path("Недопустимый идентификатор"));
@@ -607,7 +615,10 @@ mod tests {
             .map(|e| (e.name, e.is_dir))
             .collect();
         names.sort();
-        assert_eq!(names, [("A".to_string(), true), ("top.txt".to_string(), false)]);
+        assert_eq!(
+            names,
+            [("A".to_string(), true), ("top.txt".to_string(), false)]
+        );
         assert_eq!(
             dir_stats(&dir),
             DirStats {

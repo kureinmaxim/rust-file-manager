@@ -21,8 +21,10 @@ use crate::config::TelegramConfig;
 
 /// Telegram's public keys for third-party validation (production and test
 /// environment), as published in the Mini Apps documentation.
-const TELEGRAM_PUBLIC_KEY_PROD: [u8; 32] = hex32("e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d");
-const TELEGRAM_PUBLIC_KEY_TEST: [u8; 32] = hex32("40055058a4ee38156a06562e52eece92a771bcd8346a8c4615cb7376eddf72ec");
+const TELEGRAM_PUBLIC_KEY_PROD: [u8; 32] =
+    hex32("e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d");
+const TELEGRAM_PUBLIC_KEY_TEST: [u8; 32] =
+    hex32("40055058a4ee38156a06562e52eece92a771bcd8346a8c4615cb7376eddf72ec");
 
 /// Clock skew tolerated for `auth_date` in the future.
 const FUTURE_SKEW_SECS: u64 = 60;
@@ -93,7 +95,9 @@ pub enum InitDataError {
 impl InitDataError {
     pub fn message(self) -> &'static str {
         match self {
-            Self::Malformed | Self::NoUser => "Не удалось прочитать данные Telegram. Откройте приложение заново.",
+            Self::Malformed | Self::NoUser => {
+                "Не удалось прочитать данные Telegram. Откройте приложение заново."
+            }
             Self::MissingSignature => {
                 "Клиент Telegram не передал подпись. Обновите Telegram до последней версии."
             }
@@ -140,7 +144,12 @@ pub fn verify_init_data(
         .map_err(|_| InitDataError::BadSignature)?;
 
     // Only fields covered by the signature are read below.
-    let field = |name: &str| pairs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
+    let field = |name: &str| {
+        pairs
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
+    };
     let auth_date: u64 = field("auth_date")
         .and_then(|v| v.parse().ok())
         .ok_or(InitDataError::Malformed)?;
@@ -156,7 +165,9 @@ pub fn verify_init_data(
     Ok(InitData {
         user,
         auth_date,
-        start_param: field("start_param").map(str::to_string).filter(|s| !s.is_empty()),
+        start_param: field("start_param")
+            .map(str::to_string)
+            .filter(|s| !s.is_empty()),
     })
 }
 
@@ -279,7 +290,10 @@ mod tests {
             .collect::<Vec<_>>()
             .join("&");
         assert_eq!(verify(&without), Err(InitDataError::MissingSignature));
-        assert_eq!(verify(&format!("{raw}&auth_date=1")), Err(InitDataError::Malformed));
+        assert_eq!(
+            verify(&format!("{raw}&auth_date=1")),
+            Err(InitDataError::Malformed)
+        );
         assert_eq!(verify(""), Err(InitDataError::Malformed));
         assert_eq!(verify(&"a=b&".repeat(5000)), Err(InitDataError::Malformed));
     }

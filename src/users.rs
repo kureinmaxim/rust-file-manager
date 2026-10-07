@@ -132,12 +132,18 @@ impl UserStore {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => StoreData::default(),
             Err(e) => return Err(e),
         };
-        Ok(Self { path, data: RwLock::new(data) })
+        Ok(Self {
+            path,
+            data: RwLock::new(data),
+        })
     }
 
     fn save(&self, data: &StoreData) -> std::io::Result<()> {
         let tmp = self.path.with_extension("json.tmp");
-        fs::write(&tmp, serde_json::to_string_pretty(data).expect("serialize users"))?;
+        fs::write(
+            &tmp,
+            serde_json::to_string_pretty(data).expect("serialize users"),
+        )?;
         fs::rename(&tmp, &self.path)
     }
 
@@ -179,7 +185,8 @@ impl UserStore {
             telegram_id: None,
             token_version: 0,
         });
-        self.save(&data).map_err(|e| format!("Ошибка сохранения: {e}"))
+        self.save(&data)
+            .map_err(|e| format!("Ошибка сохранения: {e}"))
     }
 
     pub fn remove_user(&self, username: &str) -> Result<(), String> {
@@ -189,7 +196,8 @@ impl UserStore {
         if data.users.len() == before {
             return Err("Пользователь не найден".into());
         }
-        self.save(&data).map_err(|e| format!("Ошибка сохранения: {e}"))
+        self.save(&data)
+            .map_err(|e| format!("Ошибка сохранения: {e}"))
     }
 
     fn account_of(data: &StoreData, username: &str, admin_username: &str) -> Option<Account> {
@@ -201,12 +209,15 @@ impl UserStore {
                 token_version: data.admin.token_version,
             });
         }
-        data.users.iter().find(|u| u.username == username).map(|u| Account {
-            username: u.username.clone(),
-            is_admin: false,
-            telegram_id: u.telegram_id,
-            token_version: u.token_version,
-        })
+        data.users
+            .iter()
+            .find(|u| u.username == username)
+            .map(|u| Account {
+                username: u.username.clone(),
+                is_admin: false,
+                telegram_id: u.telegram_id,
+                token_version: u.token_version,
+            })
     }
 
     /// Account by username (the admin included).
@@ -221,7 +232,10 @@ impl UserStore {
         if data.admin.telegram_id == Some(telegram_id) {
             return Self::account_of(&data, admin_username, admin_username);
         }
-        let user = data.users.iter().find(|u| u.telegram_id == Some(telegram_id))?;
+        let user = data
+            .users
+            .iter()
+            .find(|u| u.telegram_id == Some(telegram_id))?;
         Self::account_of(&data, &user.username, admin_username)
     }
 
@@ -231,7 +245,11 @@ impl UserStore {
         let admin = Self::account_of(&data, admin_username, admin_username);
         admin
             .into_iter()
-            .chain(data.users.iter().filter_map(|u| Self::account_of(&data, &u.username, admin_username)))
+            .chain(
+                data.users
+                    .iter()
+                    .filter_map(|u| Self::account_of(&data, &u.username, admin_username)),
+            )
             .filter(|a| a.telegram_id.is_some())
             .collect()
     }
@@ -278,11 +296,16 @@ impl UserStore {
             }
             user.telegram_id = Some(telegram_id);
         }
-        self.save(&data).map_err(|e| LinkError::Save(format!("Ошибка сохранения: {e}")))
+        self.save(&data)
+            .map_err(|e| LinkError::Save(format!("Ошибка сохранения: {e}")))
     }
 
     /// Unlink a Telegram id and revoke the account's tokens; returns the username.
-    pub fn unlink_telegram(&self, telegram_id: i64, admin_username: &str) -> Result<String, LinkError> {
+    pub fn unlink_telegram(
+        &self,
+        telegram_id: i64,
+        admin_username: &str,
+    ) -> Result<String, LinkError> {
         let mut data = self.data.write().expect("user store lock");
         let username = if data.admin.telegram_id == Some(telegram_id) {
             data.admin.telegram_id = None;
@@ -298,7 +321,8 @@ impl UserStore {
             user.token_version = user.token_version.wrapping_add(1);
             user.username.clone()
         };
-        self.save(&data).map_err(|e| LinkError::Save(format!("Ошибка сохранения: {e}")))?;
+        self.save(&data)
+            .map_err(|e| LinkError::Save(format!("Ошибка сохранения: {e}")))?;
         Ok(username)
     }
 
@@ -315,7 +339,8 @@ impl UserStore {
                 .ok_or("Пользователь не найден")?;
             user.token_version = user.token_version.wrapping_add(1);
         }
-        self.save(&data).map_err(|e| format!("Ошибка сохранения: {e}"))
+        self.save(&data)
+            .map_err(|e| format!("Ошибка сохранения: {e}"))
     }
 
     /// Create an account registered from Telegram (no password yet).
@@ -325,7 +350,10 @@ impl UserStore {
             return Err("Пользователь с таким именем уже существует".into());
         }
         if data.admin.telegram_id == Some(telegram_id)
-            || data.users.iter().any(|u| u.telegram_id == Some(telegram_id))
+            || data
+                .users
+                .iter()
+                .any(|u| u.telegram_id == Some(telegram_id))
         {
             return Err("Этот Telegram уже привязан к другому аккаунту".into());
         }
@@ -336,7 +364,8 @@ impl UserStore {
             telegram_id: Some(telegram_id),
             token_version: 0,
         });
-        self.save(&data).map_err(|e| format!("Ошибка сохранения: {e}"))
+        self.save(&data)
+            .map_err(|e| format!("Ошибка сохранения: {e}"))
     }
 
     /// Create a single-use invite token, dropping expired ones along the way.
@@ -351,14 +380,17 @@ impl UserStore {
         let ts = now();
         data.invites.retain(|i| i.expires_at > ts);
         data.invites.push(invite.clone());
-        self.save(&data).map_err(|e| format!("Ошибка сохранения: {e}"))?;
+        self.save(&data)
+            .map_err(|e| format!("Ошибка сохранения: {e}"))?;
         Ok(invite)
     }
 
     pub fn invite_valid(&self, token: &str) -> bool {
         let data = self.data.read().expect("user store lock");
         let ts = now();
-        data.invites.iter().any(|i| i.token == token && i.expires_at > ts)
+        data.invites
+            .iter()
+            .any(|i| i.token == token && i.expires_at > ts)
     }
 
     /// Consume an invite token: it is removed so each link works exactly once.
@@ -371,7 +403,8 @@ impl UserStore {
         if data.invites.len() == before {
             return Err("Ссылка-приглашение недействительна или истекла".into());
         }
-        self.save(&data).map_err(|e| format!("Ошибка сохранения: {e}"))
+        self.save(&data)
+            .map_err(|e| format!("Ошибка сохранения: {e}"))
     }
 }
 
@@ -413,17 +446,32 @@ mod tests {
         store.add_user("bob", "secret").unwrap();
         assert_eq!(store.link_telegram("bob", "admin", 42), Ok(()));
         assert_eq!(store.link_telegram("bob", "admin", 42), Ok(()));
-        assert_eq!(store.link_telegram("alice", "admin", 42), Err(LinkError::AlreadyLinked));
-        assert_eq!(store.link_telegram("bob", "admin", 43), Err(LinkError::AlreadyLinked));
-        assert_eq!(store.link_telegram("nobody", "admin", 44), Err(LinkError::NoUser));
+        assert_eq!(
+            store.link_telegram("alice", "admin", 42),
+            Err(LinkError::AlreadyLinked)
+        );
+        assert_eq!(
+            store.link_telegram("bob", "admin", 43),
+            Err(LinkError::AlreadyLinked)
+        );
+        assert_eq!(
+            store.link_telegram("nobody", "admin", 44),
+            Err(LinkError::NoUser)
+        );
         assert_eq!(store.link_telegram("admin", "admin", 7), Ok(()));
         let bob = store.account_by_telegram(42, "admin").unwrap();
-        assert_eq!((bob.username.as_str(), bob.is_admin, bob.token_version), ("bob", false, 0));
+        assert_eq!(
+            (bob.username.as_str(), bob.is_admin, bob.token_version),
+            ("bob", false, 0)
+        );
         assert!(store.account_by_telegram(7, "admin").unwrap().is_admin);
         assert_eq!(store.telegram_links("admin").len(), 2);
         assert_eq!(store.unlink_telegram(42, "admin").as_deref(), Ok("bob"));
         assert_eq!(store.account("bob", "admin").unwrap().token_version, 1);
-        assert_eq!(store.unlink_telegram(42, "admin"), Err(LinkError::NotLinked));
+        assert_eq!(
+            store.unlink_telegram(42, "admin"),
+            Err(LinkError::NotLinked)
+        );
 
         // Telegram-only accounts cannot log in with a password.
         store.add_telegram_user("tg_only", 99).unwrap();
@@ -435,8 +483,14 @@ mod tests {
         // Reload from disk: data survives a restart.
         let store2 = UserStore::load(path).unwrap();
         assert!(store2.user_exists("alice"));
-        assert_eq!(store2.account_by_telegram(7, "admin").unwrap().username, "admin");
-        assert_eq!(store2.account_by_telegram(99, "admin").unwrap().username, "tg_only");
+        assert_eq!(
+            store2.account_by_telegram(7, "admin").unwrap().username,
+            "admin"
+        );
+        assert_eq!(
+            store2.account_by_telegram(99, "admin").unwrap().username,
+            "tg_only"
+        );
         store2.remove_user("alice").unwrap();
         assert!(!store2.user_exists("alice"));
     }

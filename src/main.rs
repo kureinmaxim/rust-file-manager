@@ -1,14 +1,19 @@
 mod admin;
+mod api;
+#[cfg(test)]
+mod api_tests;
 mod auth;
 mod categories;
 mod config;
 mod files;
 mod internal;
 mod paths;
+mod ratelimit;
 mod reply;
 mod storage;
 mod tg_auth;
 mod tokens;
+mod uploads;
 mod users;
 
 use std::io::Read;
@@ -99,7 +104,29 @@ async fn main() -> std::io::Result<()> {
     let handlebars = web::Data::new(handlebars);
 
     let session_key = config.session_key();
+    let token_keys = web::Data::new(tokens::TokenKeys::derive(&config.secret));
+    let link_limiter = web::Data::new(api::link_limiter());
+    let upload_locks = web::Data::new(uploads::UploadLocks::default());
+    let miniapp_enabled = config.telegram.is_some();
     let config = web::Data::new(config);
+
+    // Hourly removal of chunked uploads abandoned for more than a day.
+    let staging_root = config.upload_dir.clone();
+    actix_web::rt::spawn(async move {
+        let mut interval = actix_web::rt::time::interval(std::time::Duration::from_secs(3600));
+        loop {
+            interval.tick().await;
+            let root = staging_root.clone();
+            let removed = actix_web::rt::task::spawn_blocking(move || {
+                uploads::cleanup_staging(&root, uploads::STAGING_TTL)
+            })
+            .await
+            .unwrap_or(0);
+            if removed > 0 {
+                tracing::info!(removed, "removed stale chunked uploads");
+            }
+        }
+    });
 
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
@@ -107,6 +134,7 @@ async fn main() -> std::io::Result<()> {
         built = env!("BUILD_DATE"),
         addr = %config.bind_addr,
         upload_dir = %config.upload_dir.display(),
+        miniapp = miniapp_enabled,
         "starting server"
     );
 
@@ -130,8 +158,18 @@ async fn main() -> std::io::Result<()> {
             .app_data(app_config.clone())
             .app_data(public_store.clone())
             .app_data(handlebars.clone())
-            .wrap(Logger::default())
+            .app_data(token_keys.clone())
+            .app_data(link_limiter.clone())
+            .app_data(upload_locks.clone())
+            // Signed download links carry a token in the path: keep them out of the access log.
+            .wrap(Logger::default().exclude_regex("^/d/"))
             .wrap(session_middleware)
+            // Mini App API (Bearer tokens) — before the cookie-protected catch-all scope.
+            .configure(|cfg| {
+                if miniapp_enabled {
+                    api::configure(cfg);
+                }
+            })
             .route("/login", web::get().to(auth::login_page))
             .route("/login", web::post().to(auth::login))
             .route("/logout", web::post().to(auth::logout))

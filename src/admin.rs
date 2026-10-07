@@ -23,15 +23,23 @@ pub async fn create_invite(
     session: Session,
     store: web::Data<UserStore>,
 ) -> impl Responder {
-    let username = current_user(&session).map(|u| u.username).unwrap_or_default();
+    let username = current_user(&session)
+        .map(|u| u.username)
+        .unwrap_or_default();
     match store.create_invite(&username) {
         Ok(invite) => {
             let info = req.connection_info();
-            let url = format!("{}://{}/register?token={}", info.scheme(), info.host(), invite.token);
+            let url = format!(
+                "{}://{}/register?token={}",
+                info.scheme(),
+                info.host(),
+                invite.token
+            );
             tracing::info!(created_by = %username, "invite link created");
             HttpResponse::Ok().json(InviteResponse {
                 success: true,
-                message: "Ссылка-приглашение создана (действует 7 дней, на одну регистрацию)".into(),
+                message: "Ссылка-приглашение создана (действует 7 дней, на одну регистрацию)"
+                    .into(),
                 invite_url: Some(url),
             })
         }
@@ -58,7 +66,10 @@ pub async fn delete_user(
 ) -> impl Responder {
     let username = path.into_inner();
     if let Err(e) = store.remove_user(&username) {
-        return HttpResponse::NotFound().json(AdminResponse { success: false, message: e });
+        return HttpResponse::NotFound().json(AdminResponse {
+            success: false,
+            message: e,
+        });
     }
 
     // The username was validated at registration, so this path stays inside home/.

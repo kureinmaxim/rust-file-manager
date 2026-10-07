@@ -103,11 +103,6 @@ impl RelPath {
         self.0.last().map(String::as_str)
     }
 
-    /// True when `self` equals `other` or lies inside it.
-    pub fn starts_with(&self, other: &RelPath) -> bool {
-        self.0.len() >= other.0.len() && self.0[..other.0.len()] == other.0[..]
-    }
-
     pub fn to_path_buf(&self) -> PathBuf {
         self.0.iter().collect()
     }
@@ -144,7 +139,10 @@ pub fn ensure_no_symlinks(base: &Path, rel: &RelPath, name: Option<&str>) -> io:
         current.push(component);
         match std::fs::symlink_metadata(&current) {
             Ok(meta) if meta.file_type().is_symlink() => {
-                return Err(io::Error::new(io::ErrorKind::PermissionDenied, SymlinkRefused));
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    SymlinkRefused,
+                ));
             }
             Ok(_) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -191,25 +189,14 @@ mod tests {
 
     #[test]
     fn enforces_depth_and_length() {
-        let eight = vec!["d"; MAX_DEPTH].join("/");
-        let nine = vec!["d"; MAX_DEPTH + 1].join("/");
+        let eight = ["d"; MAX_DEPTH].join("/");
+        let nine = ["d"; MAX_DEPTH + 1].join("/");
         assert!(RelPath::parse(&eight).is_ok());
         assert!(RelPath::parse(&nine).is_err());
         assert!(RelPath::parse(&eight).unwrap().join("x").is_err());
         assert!(RelPath::parse(&"я".repeat(127)).is_ok()); // 254 bytes
         assert!(validate_segment(&"я".repeat(128)).is_err()); // 256 bytes > 255
         assert!(validate_segment(&"a".repeat(255)).is_ok());
-    }
-
-    #[test]
-    fn starts_with_is_segment_aware() {
-        let a = RelPath::parse("Ремонт").unwrap();
-        let ab = RelPath::parse("Ремонт/Чеки").unwrap();
-        let other = RelPath::parse("Ремонт кухни").unwrap();
-        assert!(ab.starts_with(&a));
-        assert!(a.starts_with(&a));
-        assert!(!other.starts_with(&a));
-        assert!(ab.starts_with(&RelPath::root()));
     }
 
     #[cfg(unix)]

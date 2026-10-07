@@ -168,7 +168,10 @@ mod tests {
             })
             .unwrap(),
         );
-        assert_eq!(verify_access(&keys(), &format!("v1.{forged_payload}.{tag}"), 1), None);
+        assert_eq!(
+            verify_access(&keys(), &format!("v1.{forged_payload}.{tag}"), 1),
+            None
+        );
         assert_eq!(verify_access(&keys(), "v1.garbage", 1), None);
         assert_eq!(verify_access(&keys(), &token[3..], 1), None); // no prefix
     }
