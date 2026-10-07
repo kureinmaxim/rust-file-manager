@@ -344,6 +344,7 @@ async fn complete(
     user: web::ReqData<ApiUser>,
     config: web::Data<AppConfig>,
     store: web::Data<UserStore>,
+    events: web::Data<crate::exchange::Events>,
     locks: web::Data<UploadLocks>,
 ) -> HttpResponse {
     let Some((meta, part)) = load(&config, &user, &id) else {
@@ -362,7 +363,7 @@ async fn complete(
     }
     if let Some(owner) = &meta.exchange {
         return match crate::exchange::finish_upload(
-            &config, &store, &user, owner, &part, &meta.name,
+            &config, &store, &events, &user, owner, &part, &meta.name,
         ) {
             Ok(item) => {
                 let _ =

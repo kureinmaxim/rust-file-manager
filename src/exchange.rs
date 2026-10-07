@@ -10,9 +10,12 @@
 //! The web UI routes (cookie session) and the Mini App routes (Bearer token)
 //! both live here and share the same functions.
 
+use std::collections::VecDeque;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use actix_files::NamedFile;
 use actix_multipart::Multipart;
@@ -43,6 +46,80 @@ pub const EXCHANGE_DIR: &str = "exchange";
 /// Signed links to exchange files live as long as other download links.
 const LINK_TTL: u64 = 5 * 60;
 const STREAM_TTL: u64 = 6 * 60 * 60;
+
+/// How many recent arrivals the bot can still fetch.
+const MAX_EVENTS: usize = 500;
+
+/// A file that arrived in an exchange; the bot turns it into a notification.
+#[derive(Clone, Debug)]
+pub struct Event {
+    pub id: u64,
+    pub ts: u64,
+    pub owner: String,
+    pub inbox: Inbox,
+    pub name: String,
+    pub size: u64,
+}
+
+/// Recent arrivals, kept in memory only. Ids are microseconds since the epoch
+/// (strictly increasing), so after a restart new ids still follow the ones the
+/// bot has seen; an arrival in the seconds before a restart may go unannounced,
+/// which is acceptable for a notification.
+pub struct Events {
+    inner: Mutex<(VecDeque<Event>, u64)>,
+}
+
+fn now_micros() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_micros() as u64)
+        .unwrap_or(0)
+}
+
+impl Default for Events {
+    fn default() -> Self {
+        Events {
+            inner: Mutex::new((VecDeque::new(), now_micros())),
+        }
+    }
+}
+
+impl Events {
+    pub fn push(&self, owner: &str, inbox: Inbox, name: &str, size: u64) {
+        let mut guard = self.inner.lock().expect("exchange events");
+        let (queue, last) = &mut *guard;
+        let id = now_micros().max(*last + 1);
+        *last = id;
+        queue.push_back(Event {
+            id,
+            ts: id / 1_000_000,
+            owner: owner.to_string(),
+            inbox,
+            name: name.to_string(),
+            size,
+        });
+        if queue.len() > MAX_EVENTS {
+            queue.pop_front();
+        }
+    }
+
+    /// Events with an id above `after`, oldest first, at most `limit`.
+    pub fn after(&self, after: u64, limit: usize) -> Vec<Event> {
+        let guard = self.inner.lock().expect("exchange events");
+        guard
+            .0
+            .iter()
+            .filter(|e| e.id > after)
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
+    /// The newest id handed out (or the start time): where a fresh reader begins.
+    pub fn last_id(&self) -> u64 {
+        self.inner.lock().expect("exchange events").1
+    }
+}
 
 /// One direction of an exchange.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -390,6 +467,7 @@ pub async fn web_upload(
     session: Session,
     config: web::Data<AppConfig>,
     store: web::Data<UserStore>,
+    events: web::Data<Events>,
 ) -> Result<HttpResponse, Error> {
     let user = match session_user(&session) {
         Ok(u) => u,
@@ -447,6 +525,7 @@ pub async fn web_upload(
             .unwrap_or("?")
             .to_string();
         tracing::info!(user = %user.username, exchange = %owner, file = %saved, size, "file sent to exchange");
+        events.push(&owner, viewer.outgoing(), &saved, size as u64);
         sent.push(saved);
     }
     match sent.as_slice() {
@@ -766,6 +845,7 @@ async fn api_delete(
 pub fn finish_upload(
     config: &AppConfig,
     store: &UserStore,
+    events: &Events,
     user: &ApiUser,
     owner_name: &str,
     staged: &Path,
@@ -790,6 +870,7 @@ pub fn finish_upload(
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs()),
     };
+    events.push(&owner, viewer.outgoing(), &entry.name, entry.size);
     Ok(api_item(&owner, viewer.outgoing(), viewer, &entry))
 }
 

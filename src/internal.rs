@@ -19,6 +19,7 @@ use serde_json::json;
 use subtle::ConstantTimeEq;
 
 use crate::config::AppConfig;
+use crate::exchange::{Events, Inbox};
 use crate::reply;
 use crate::storage::{disk_usage, folder_size, STAGING_DIR};
 use crate::users::{LinkError, UserStore};
@@ -39,7 +40,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(get_resolve)
             .service(post_invite)
             .service(post_bind)
-            .service(post_unbind),
+            .service(post_unbind)
+            .service(get_events),
     );
 }
 
@@ -257,6 +259,59 @@ async fn post_unbind(
     }
 }
 
+#[derive(Deserialize)]
+struct EventsQuery {
+    after: Option<u64>,
+}
+
+/// Files that arrived in exchanges since `after`, with the Telegram accounts
+/// to notify (the bot polls this and writes to them). Without `after` only the
+/// newest id is returned, so a freshly started bot does not replay old events.
+#[get("/events")]
+async fn get_events(
+    query: web::Query<EventsQuery>,
+    config: web::Data<AppConfig>,
+    store: web::Data<UserStore>,
+    events: web::Data<Events>,
+) -> HttpResponse {
+    let Some(after) = query.after else {
+        return reply::ok(json!({ "events": [], "last_id": events.last_id() }));
+    };
+    let batch = events.after(after, 100);
+    let last_id = batch.last().map_or(after, |e| e.id);
+    let list: Vec<_> = batch
+        .iter()
+        .filter_map(|e| {
+            // The recipient is the other side; a deleted user has no exchange left.
+            let owner = store.account(&e.owner, &config.admin_username)?;
+            let (sender, recipient) = match e.inbox {
+                Inbox::FromAdmin => (config.admin_username.clone(), owner),
+                Inbox::FromUser => (
+                    e.owner.clone(),
+                    store.account(&config.admin_username, &config.admin_username)?,
+                ),
+            };
+            let recipients: Vec<_> = recipient
+                .telegram_id
+                .map(|id| json!({ "telegram_id": id, "username": recipient.username, "is_admin": recipient.is_admin }))
+                .into_iter()
+                .collect();
+            Some(json!({
+                "id": e.id,
+                "type": "exchange.file",
+                "ts": e.ts,
+                "owner": e.owner,
+                "direction": e.inbox.as_str(),
+                "sender": sender,
+                "name": e.name,
+                "size": e.size,
+                "recipients": recipients,
+            }))
+        })
+        .collect();
+    reply::ok(json!({ "events": list, "last_id": last_id }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,6 +323,7 @@ mod tests {
     struct Env {
         config: web::Data<AppConfig>,
         store: web::Data<UserStore>,
+        events: web::Data<Events>,
     }
 
     fn env() -> Env {
@@ -281,6 +337,7 @@ mod tests {
         Env {
             config: web::Data::new(config),
             store: web::Data::new(store),
+            events: web::Data::new(Events::default()),
         }
     }
 
@@ -289,6 +346,7 @@ mod tests {
             App::new()
                 .app_data(env.config.clone())
                 .app_data(env.store.clone())
+                .app_data(env.events.clone())
                 .app_data(web::Data::new(ServerInfo {
                     started: Instant::now(),
                 }))
@@ -454,5 +512,54 @@ mod tests {
             (s, b["code"].as_str()),
             (StatusCode::NOT_FOUND, Some("not_linked"))
         );
+    }
+
+    #[actix_web::test]
+    async fn events_name_the_other_side_of_the_exchange() {
+        let env = env();
+        let get = |uri: &str| test::TestRequest::get().uri(uri);
+
+        // A fresh reader starts at the newest id and gets nothing old.
+        let (status, start) = call(&env, get("/internal/v1/events"), Some(TOKEN)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(start["events"], json!([]));
+        let start_id = start["last_id"].as_u64().unwrap();
+
+        env.events.push("bob", Inbox::FromAdmin, "план.pdf", 10);
+        env.events.push("ghost", Inbox::FromAdmin, "x.pdf", 1); // no such user: skipped
+        env.events.push("bob", Inbox::FromUser, "ответ.txt", 2);
+
+        let (_, body) = call(
+            &env,
+            get(&format!("/internal/v1/events?after={start_id}")),
+            Some(TOKEN),
+        )
+        .await;
+        let events = body["events"].as_array().unwrap();
+        assert_eq!(events.len(), 2, "{body}");
+        assert_eq!(events[0]["direction"], "from-admin");
+        assert_eq!(events[0]["sender"], "admin");
+        assert_eq!(events[0]["name"], "план.pdf");
+        assert_eq!(
+            events[0]["recipients"],
+            json!([{ "telegram_id": 222, "username": "bob", "is_admin": false }])
+        );
+        assert_eq!(events[1]["direction"], "from-user");
+        assert_eq!(events[1]["sender"], "bob");
+        assert_eq!(events[1]["recipients"][0]["telegram_id"], 111);
+        assert_eq!(events[1]["recipients"][0]["is_admin"], true);
+        let last = body["last_id"].as_u64().unwrap();
+        assert!(last > start_id);
+
+        let (_, again) = call(
+            &env,
+            get(&format!("/internal/v1/events?after={last}")),
+            Some(TOKEN),
+        )
+        .await;
+        assert_eq!(again["events"], json!([]));
+        assert_eq!(again["last_id"], last);
+        let (status, _) = call(&env, get("/internal/v1/events?after=0"), None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 }

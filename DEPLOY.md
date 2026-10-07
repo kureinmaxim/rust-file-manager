@@ -9,6 +9,9 @@ systemd**, Bash и доступом root или sudo.
 обновлении эти шаги повторять не нужно.
 
 Мини-приложение в Telegram и связка с ботом — [TELEGRAM_MINIAPP.md](TELEGRAM_MINIAPP.md).
+Установка вместе с ботом TelegramOnly на чистый VPS, все команды по порядку —
+[DEPLOYwTELEGRAM.md](DEPLOYwTELEGRAM.md); схема сервера —
+[ARCHITECTUREwTELEGRAM.md](ARCHITECTUREwTELEGRAM.md).
 
 Перенос на другой IP или VPS с файлами и пользователями —
 [DEPLOY4newVPS.md](DEPLOY4newVPS.md).

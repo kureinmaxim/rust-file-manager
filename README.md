@@ -1,6 +1,6 @@
 # Rust File Manager
 
-**Текущая версия:** 1.6.0 (07.10.2026)
+**Текущая версия:** 1.7.0 (07.10.2026)
 
 ## Что это
 
@@ -152,6 +152,12 @@ relay-серверы не могут прочитать содержимое
 менеджеру не нужен. Настройка — [TELEGRAM_MINIAPP.md](TELEGRAM_MINIAPP.md),
 план развития — [TELEGRAM_MINIAPP_PLAN.md](TELEGRAM_MINIAPP_PLAN.md).
 
+Бот и файловый менеджер на одном VPS, все команды по порядку:
+- установка с нуля — [DEPLOYwTELEGRAM.md](DEPLOYwTELEGRAM.md);
+- обновление работающего сервера — [POST_DEPLOYwTELEGRAM.md](POST_DEPLOYwTELEGRAM.md);
+- схема: что где установлено, как ходят команды, где лежат общие, личные и
+  обменные файлы — [ARCHITECTUREwTELEGRAM.md](ARCHITECTUREwTELEGRAM.md).
+
 ## Работа с интерфейсом
 
 Интерфейс адаптируется к компьютеру, планшету и телефону. Кнопки «Все файлы»,
@@ -286,7 +292,7 @@ RUST_LOG=info
 
 ## Деплой на VPS
 
-Полная пошаговая инструкция (systemd + nginx + HTTPS + Cloudflare + многопользовательский режим) — в [DEPLOY.md](DEPLOY.md). Доступ через сеть Tailscale/Headscale — в [TAILSCALE.md](TAILSCALE.md).
+Полная пошаговая инструкция (systemd + nginx + HTTPS + Cloudflare + многопользовательский режим) — в [DEPLOY.md](DEPLOY.md). Вместе с ботом TelegramOnly на одном VPS — [DEPLOYwTELEGRAM.md](DEPLOYwTELEGRAM.md) (с нуля) и [POST_DEPLOYwTELEGRAM.md](POST_DEPLOYwTELEGRAM.md) (обновление). Доступ через сеть Tailscale/Headscale — в [TAILSCALE.md](TAILSCALE.md).
 
 Примеры конфигов лежат в [`deploy/`](deploy/):
 
