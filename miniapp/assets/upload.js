@@ -43,7 +43,7 @@ function emit() {
 
 export const active = () => queue.filter((i) => i.state === 'up' || i.state === 'wait');
 
-/** dest: { scope, category (null = by extension), path } */
+/** dest: { scope, category (null = by extension), path } or { scope: 'exchange', with: owner } */
 export function addFiles(files, dest) {
   for (const file of files) {
     queue.unshift({
@@ -111,6 +111,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function begin(item) {
   const { scope, category, path } = item.dest;
+  const exchange = scope === 'exchange';
   // Resume: the server may already hold part of this very file.
   const { uploads } = await api('/uploads');
   const previous = uploads.find(
@@ -118,8 +119,7 @@ async function begin(item) {
       u.name === item.name &&
       u.size === item.size &&
       u.scope === scope &&
-      u.path === (path || '') &&
-      (!category || u.category === category),
+      (exchange ? u.with === item.dest.with : u.path === (path || '') && (!category || u.category === category)),
   );
   if (previous) {
     item.id = previous.id;
@@ -129,7 +129,9 @@ async function begin(item) {
   }
   const created = await api('/uploads', {
     method: 'POST',
-    json: { scope, category: category || undefined, path: path || '', name: item.name, size: item.size },
+    json: exchange
+      ? { scope, with: item.dest.with, name: item.name, size: item.size }
+      : { scope, category: category || undefined, path: path || '', name: item.name, size: item.size },
   });
   item.id = created.id;
   item.sent = 0;

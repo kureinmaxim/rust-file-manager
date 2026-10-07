@@ -92,11 +92,12 @@ export const qs = (params) =>
 
 // Signed links are reused while they have more than a minute left.
 const links = new Map();
-export async function signedUrl(id, purpose) {
-  const key = `${purpose}:${id}`;
+export async function signedUrl(id, purpose, kind = 'files') {
+  const key = `${kind}:${purpose}:${id}`;
   const cached = links.get(key);
   if (cached && cached.expires - Date.now() / 1000 > 60) return cached.url;
-  const data = await api(`/files/${id}/link`, { method: 'POST', json: { purpose } });
+  const path = kind === 'exchange' ? `/exchange/items/${id}/link` : `/files/${id}/link`;
+  const data = await api(path, { method: 'POST', json: { purpose } });
   links.set(key, { url: data.url, expires: data.expires_at });
   return data.url;
 }

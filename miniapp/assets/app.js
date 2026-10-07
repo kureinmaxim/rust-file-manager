@@ -79,6 +79,9 @@ const greeting = () => {
   return h < 5 ? 'Доброй ночи' : h < 12 ? 'Доброе утро' : h < 18 ? 'Добрый день' : 'Добрый вечер';
 };
 
+/** Signed link for a file of a zone or of the exchange. */
+const linkFor = (item, purpose) => signedUrl(item.id, purpose, item.direction ? 'exchange' : 'files');
+
 function Icon({ name, cls = 'icon' }) {
   return html`<svg class=${cls} aria-hidden="true"><use href=${`#i-${name}`} /></svg>`;
 }
@@ -110,7 +113,7 @@ function store(initial) {
 
 const ui = store({ sheet: null, dialog: null, toast: null, viewer: null });
 const nav = store({ stack: [{ name: 'home' }] });
-const data = store({ version: 0, overview: null });
+const data = store({ version: 0, overview: null, exchange: null });
 
 const overlayOpen = () => Boolean(ui.state.sheet || ui.state.viewer || ui.state.dialog);
 const top = () => nav.state.stack[nav.state.stack.length - 1];
@@ -135,7 +138,7 @@ function back() {
 }
 
 function changed() {
-  data.set({ version: data.state.version + 1, overview: null });
+  data.set({ version: data.state.version + 1, overview: null, exchange: null });
 }
 up.onUploaded(changed);
 
@@ -191,6 +194,22 @@ function useOverview() {
   }, [d.version]);
   return d.overview;
 }
+async function loadExchange() {
+  if (data.state.exchange) return data.state.exchange;
+  const ex = await api('/exchange');
+  data.set({ exchange: ex });
+  return ex;
+}
+function useExchange() {
+  const d = data.use();
+  useEffect(() => {
+    if (!d.exchange) loadExchange().catch(() => {});
+  }, [d.version]);
+  return d.exchange;
+}
+const incomingCount = (ex) => (!ex ? 0 : ex.role === 'admin' ? ex.partners.reduce((n, p) => n + p.incoming, 0) : ex.incoming.length);
+const asFile = (item) => ({ ...item, type: 'file' });
+
 function useQueue() {
   const [, force] = useState(0);
   useEffect(() => up.subscribe(() => force((x) => x + 1)), []);
@@ -210,7 +229,7 @@ function Thumb({ item, cls = 'ftile' }) {
     const io = new IntersectionObserver((entries) => {
       if (!entries.some((e) => e.isIntersecting)) return;
       io.disconnect();
-      signedUrl(item.id, 'inline')
+      linkFor(item, 'inline')
         .then((url) => alive && setSrc(url))
         .catch(() => {});
     });
@@ -255,6 +274,32 @@ function openItem(item) {
   }
 }
 
+/** Show a file: images in the viewer, media and PDF inline, the rest downloaded. */
+async function viewFile(item) {
+  if (item.kind === 'image') {
+    const images = (currentItems.length ? currentItems : [item]).filter((i) => i.type === 'file' && i.kind === 'image');
+    const index = Math.max(0, images.findIndex((i) => i.id === item.id));
+    return setUi({ sheet: null, viewer: { items: images.length ? images : [item], index } });
+  }
+  if (['video', 'audio', 'pdf'].includes(item.kind)) {
+    try {
+      tg.openLink(await linkFor(item, 'inline'));
+    } catch (e) {
+      showError(e);
+    }
+    return undefined;
+  }
+  return downloadFile(item);
+}
+async function downloadFile(item) {
+  try {
+    tg.download(await linkFor(item, 'download'), item.name);
+    toast('Telegram предложит сохранить файл');
+  } catch (e) {
+    showError(e);
+  }
+}
+
 function Skeleton({ rows = 4 }) {
   return html`<div aria-label="Загрузка">${Array.from({ length: rows }, (_, i) => html`<div class="skeleton" key=${i}></div>`)}</div>`;
 }
@@ -270,6 +315,7 @@ function ErrorBox({ error, onRetry }) {
 
 function Home() {
   const ov = useOverview();
+  const ex = useExchange();
   const queue = useQueue();
   const tgu = tg.tgUser();
   const user = session().user || {};
@@ -309,12 +355,19 @@ function Home() {
       <${Icon} name="right" cls="icon chev" /></button>`;
   }
 
+  const incoming = incomingCount(ex);
+  const exchangePill = incoming > 0 && html`<button class="pill tap" type="button" onClick=${() => go({ name: 'exchange' })}>
+      <span class="tile" style="--k:var(--c-photo)"><${Icon} name="inbox" /></span>
+      <span class="rt">${user.is_admin ? 'Участники прислали файлы' : 'Администратор прислал файлы'}<small>${incoming} ${plural(incoming, 'файл', 'файла', 'файлов')} в обмене · сохраните к себе или скачайте</small></span>
+      <${Icon} name="right" cls="icon chev" /></button>`;
+
   return html`
     <div class="hello">
       <span class="avatar" aria-hidden="true">${(name[0] || '?').toUpperCase()}</span>
       <div><b>${greeting()}${name ? `, ${name}` : ''}</b><small>${user.username} · вход через Telegram${user.is_admin ? ' · администратор' : ''}</small></div>
     </div>
     ${pill}
+    ${exchangePill}
     <div class="group">
       <div class="storage">
         <div class="ring" role="img" aria-label=${`Мои файлы занимают ${fmtBytes(my.bytes)}`}>
@@ -346,6 +399,9 @@ function Home() {
       <button class="row tap" type="button" onClick=${() => go({ name: 'browse', zone: 'shared', category: null, path: '' })}>
         <span class="tile" style="--k:var(--c-prog)"><${Icon} name="users" /></span><span class="rt"><b>Общие файлы</b></span>
         <span class="rv">${shared.files} · ${fmtBytes(shared.bytes)}<${Icon} name="right" cls="icon chev" /></span></button>
+      <button class="row tap" type="button" onClick=${() => go({ name: 'exchange' })}>
+        <span class="tile" style="--k:var(--c-photo)"><${Icon} name="swap" /></span><span class="rt"><b>Обмен</b><small>${user.is_admin ? 'С каждым участником отдельно' : 'Только вы и администратор'}</small></span>
+        <span class="rv">${incoming > 0 && html`<span class="badge" aria-label=${`Пришло файлов: ${incoming}`}>${incoming}</span>`}<${Icon} name="right" cls="icon chev" /></span></button>
       <button class="row tap" type="button" onClick=${() => go({ name: 'uploads', dest: { scope: 'my', category: null, path: '' } })}>
         <span class="tile" style="--k:var(--accent)"><${Icon} name="upload" /></span><span class="rt"><b>Загрузки</b></span>
         <span class="rv">${activeItems.length ? `${activeItems.length} в работе` : ''}<${Icon} name="right" cls="icon chev" /></span></button>
@@ -523,7 +579,10 @@ function Uploads({ screen }) {
     up.addFiles(files, dest);
     tg.haptic.ok();
   };
-  const where = `${ZONE_TITLE[dest.scope]} › ${dest.category ? catLabel(dest.category) : 'категория по типу файла'}${dest.path ? ` › ${dest.path}` : ''}`;
+  const admin = (session().user || {}).is_admin;
+  const where = dest.scope === 'exchange'
+    ? `Обмен › ${admin ? `отправить ${dest.with}` : 'отправить администратору'}`
+    : `${ZONE_TITLE[dest.scope]} › ${dest.category ? catLabel(dest.category) : 'категория по типу файла'}${dest.path ? ` › ${dest.path}` : ''}`;
   const hasFinished = queue.some((i) => i.state === 'ok');
 
   return html`
@@ -556,7 +615,11 @@ function QueueRow({ item }) {
     state = `${pct} %${item.speed ? ` · ${fmtBytes(item.speed)}/с` : ''}`;
     bar = html`<span class="bar"><i style=${`width:${pct}%`}></i></span>`;
   } else if (item.state === 'wait') state = 'ожидает';
-  else if (item.state === 'ok') state = `готово → ${catLabel(item.result.category)}${item.result.path ? ` › ${item.result.path}` : ''}`;
+  else if (item.state === 'ok') {
+    state = item.result.direction
+      ? `отправлено${item.result.name !== item.name ? ` как ${item.result.name}` : ''}`
+      : `готово → ${catLabel(item.result.category)}${item.result.path ? ` › ${item.result.path}` : ''}`;
+  }
   else if (item.state === 'err') {
     state = item.error;
     bar = html`<span class="bar err"><i style=${`width:${pct}%`}></i></span>`;
@@ -568,6 +631,122 @@ function QueueRow({ item }) {
     ${item.state === 'err' && html`<button class="tbtn" type="button" onClick=${() => up.retry(item)}><${Icon} name="refresh" />Повторить</button>`}
     ${(item.state === 'up' || item.state === 'wait') && html`<button class="ib" type="button" aria-label=${`Отменить загрузку ${item.name}`} onClick=${() => up.cancel(item)}><${Icon} name="x" /></button>`}
   </div>`;
+}
+
+function Exchange({ screen }) {
+  const d = data.use();
+  const user = session().user || {};
+  const owner = screen.owner || '';
+  const [res, setRes] = useState(null);
+  const [error, setError] = useState(null);
+  const [tab, setTab] = useState('incoming');
+  const load = () => {
+    let alive = true;
+    setRes(null);
+    setError(null);
+    api(owner ? `/exchange/${encodeURIComponent(owner)}` : '/exchange')
+      .then((r) => {
+        if (!alive) return;
+        setRes(r);
+        if (!owner) data.set({ exchange: r });
+      })
+      .catch((e) => alive && setError(e));
+    return () => {
+      alive = false;
+    };
+  };
+  useEffect(load, [owner, d.version]);
+  const partnerList = res && res.role === 'admin';
+  const target = res && !partnerList ? res.owner : null;
+  useMainButton(
+    target ? { text: user.is_admin ? `Отправить файлы ${target}` : 'Отправить администратору', onClick: () => go({ name: 'uploads', dest: { scope: 'exchange', with: target } }) } : null,
+    [target],
+  );
+
+  if (error) return html`<div class="title"><h1>Обмен</h1></div><${ErrorBox} error=${error} onRetry=${load} />`;
+  if (!res) return html`<div class="title"><h1>Обмен</h1></div><${Skeleton} />`;
+
+  if (partnerList) {
+    return html`
+      <div class="title"><div><h1>Обмен</h1><small>С каждым участником отдельно</small></div></div>
+      ${res.partners.length === 0
+        ? html`<div class="group"><div class="empty"><${Icon} name="users" />Участников пока нет. Пригласите человека командой /files_invite в чате с ботом.</div></div>`
+        : html`<div class="group">${res.partners.map((p) => html`<button class="row wide tap" type="button" key=${p.username} onClick=${() => go({ name: 'exchange', owner: p.username })}>
+            <span class="tile" style="--k:var(--c-prog)"><${Icon} name="users" /></span>
+            <span class="rt"><b>${p.username}</b><small>пришло ${p.incoming} · отправлено ${p.outgoing}${p.last_mtime ? ` · ${fmtDate(p.last_mtime)}` : ''}</small></span>
+            <span class="rv">${p.incoming > 0 && html`<span class="badge" aria-label=${`Пришло файлов: ${p.incoming}`}>${p.incoming}</span>`}<${Icon} name="right" cls="icon chev" /></span></button>`)}</div>`}
+      <p class="note" style="margin-top:0">Отправленное участнику видит только он. Присланное можно сохранить копией в «Мои файлы».</p>`;
+  }
+
+  const list = (tab === 'incoming' ? res.incoming : res.outgoing).map(asFile);
+  currentItems = list;
+  const empty = tab === 'incoming'
+    ? 'Пока ничего не пришло.'
+    : `Вы ещё ничего не отправляли. Нажмите «${user.is_admin ? 'Отправить файлы' : 'Отправить администратору'}» внизу.`;
+  return html`
+    <div class="title"><div><h1>${user.is_admin ? owner : 'Обмен'}</h1><small>${user.is_admin ? 'Обмен · видите только вы и этот участник' : 'Видите только вы и администратор'}</small></div></div>
+    <div class="seg" role="group" aria-label="Направление">
+      <button type="button" aria-pressed=${String(tab === 'incoming')} onClick=${() => { setTab('incoming'); tg.haptic.select(); }}>Входящие <small>${res.incoming.length}</small></button>
+      <button type="button" aria-pressed=${String(tab === 'outgoing')} onClick=${() => { setTab('outgoing'); tg.haptic.select(); }}>Отправленные <small>${res.outgoing.length}</small></button>
+    </div>
+    ${list.length === 0
+      ? html`<div class="group"><div class="empty"><${Icon} name=${tab === 'incoming' ? 'inbox' : 'send'} />${empty}</div></div>`
+      : html`<div class="group">${list.map((i) => html`<${ItemRow} item=${i} key=${i.id} />`)}</div>`}
+    <p class="note" style="margin-top:0">«Сохранить к себе» кладёт копию в «Мои файлы» — без лишнего места на диске. Удалённое из обмена исчезает у обоих.</p>`;
+}
+
+function ExchangeSheet({ item }) {
+  const close = () => setUi({ sheet: null });
+  const user = session().user || {};
+  const incoming = item.direction === 'incoming';
+  const peer = user.is_admin ? item.owner : 'администратор';
+  const from = incoming ? `От: ${user.is_admin ? item.owner : 'администратор'}` : `Кому: ${peer}`;
+
+  async function save() {
+    try {
+      const r = await api(`/exchange/items/${item.id}/save`, { method: 'POST' });
+      tg.haptic.ok();
+      toast(`${r.message}: ${r.name}`);
+      changed();
+    } catch (e) {
+      showError(e);
+    }
+  }
+  async function remove() {
+    const ok = await tg.confirm({
+      title: 'Удалить из обмена?',
+      message: `«${item.name}» исчезнет из обмена у обоих. Копии, сохранённые в «Мои файлы», останутся.`,
+      ok: 'Удалить',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await api(`/exchange/items/${item.id}`, { method: 'DELETE' });
+      close();
+      tg.haptic.warn();
+      toast('Удалено из обмена');
+      changed();
+    } catch (e) {
+      showError(e);
+    }
+  }
+
+  return html`<div class="layer" onClick=${(e) => e.target === e.currentTarget && close()}>
+    <div class="sheet" role="dialog" aria-modal="true" aria-label=${item.name}>
+      <div class="grab"></div>
+      <div class="fhead"><${Thumb} item=${item} /><div><b>${item.name}</b><small>${fmtBytes(item.size)} · ${fmtDate(item.mtime)}</small></div></div>
+      <div class="actions">
+        <button class="act tap" type="button" onClick=${() => viewFile(item)}><${Icon} name="eye" />Открыть</button>
+        <button class="act tap" type="button" onClick=${() => downloadFile(item)}><${Icon} name="download" />Скачать</button>
+        ${incoming && html`<button class="act tap" type="button" onClick=${save}><${Icon} name="copy" />К себе</button>`}
+        <button class="act tap danger" type="button" onClick=${remove}><${Icon} name="trash" />Удалить</button>
+      </div>
+      <div class="group"><dl class="kv">
+        <dt>Обмен</dt><dd>${from}</dd>
+        <dt>Размер</dt><dd>${fmtBytes(item.size)}</dd>
+        <dt>${incoming ? 'Получен' : 'Отправлен'}</dt><dd>${fmtDate(item.mtime)}</dd>
+      </dl></div>
+    </div></div>`;
 }
 
 function Settings({ onRelink }) {
@@ -633,30 +812,8 @@ function ItemSheet({ item }) {
   const where = `${ZONE_TITLE[item.scope]} › ${catLabel(item.category)}${item.path ? ` › ${item.path}` : ''}`;
   const isFolder = item.type === 'folder';
 
-  async function openFile() {
-    if (item.kind === 'image') {
-      const images = (currentItems.length ? currentItems : [item]).filter((i) => i.type === 'file' && i.kind === 'image');
-      const index = Math.max(0, images.findIndex((i) => i.id === item.id));
-      return setUi({ sheet: null, viewer: { items: images.length ? images : [item], index } });
-    }
-    if (['video', 'audio', 'pdf'].includes(item.kind)) {
-      try {
-        tg.openLink(await signedUrl(item.id, 'inline'));
-      } catch (e) {
-        showError(e);
-      }
-      return undefined;
-    }
-    return download();
-  }
-  async function download() {
-    try {
-      tg.download(await signedUrl(item.id, 'download'), item.name);
-      toast('Telegram предложит сохранить файл');
-    } catch (e) {
-      showError(e);
-    }
-  }
+  const openFile = () => viewFile(item);
+  const download = () => downloadFile(item);
   async function rename() {
     const value = await ask({ title: isFolder ? 'Переименовать папку' : 'Переименовать файл', value: item.name, ok: 'Сохранить' });
     if (!value || value.trim() === item.name) return;
@@ -721,7 +878,7 @@ function Viewer({ items, index }) {
   useEffect(() => {
     let alive = true;
     setSrc(null);
-    signedUrl(item.id, 'inline').then((url) => alive && setSrc(url)).catch(showError);
+    linkFor(item, 'inline').then((url) => alive && setSrc(url)).catch(showError);
     return () => {
       alive = false;
     };
@@ -735,7 +892,7 @@ function Viewer({ items, index }) {
   };
   const download = async () => {
     try {
-      tg.download(await signedUrl(item.id, 'download'), item.name);
+      tg.download(await linkFor(item, 'download'), item.name);
     } catch (e) {
       showError(e);
     }
@@ -924,11 +1081,14 @@ function App() {
   let content;
   if (screen.name === 'browse') content = html`<${Browse} screen=${screen} key=${`${screen.zone}|${screen.category}|${screen.path}|${n.stack.length}`} />`;
   else if (screen.name === 'uploads') content = html`<${Uploads} screen=${screen} />`;
+  else if (screen.name === 'exchange') content = html`<${Exchange} screen=${screen} key=${screen.owner || ''} />`;
   else if (screen.name === 'settings') content = html`<${Settings} onRelink=${start} />`;
   else content = html`<${Home} />`;
 
   return html`${content}
-    ${overlays.sheet && html`<${ItemSheet} item=${overlays.sheet.item} key=${overlays.sheet.item.id} />`}
+    ${overlays.sheet && (overlays.sheet.item.direction
+      ? html`<${ExchangeSheet} item=${overlays.sheet.item} key=${overlays.sheet.item.id} />`
+      : html`<${ItemSheet} item=${overlays.sheet.item} key=${overlays.sheet.item.id} />`)}
     ${overlays.viewer && html`<${Viewer} ...${overlays.viewer} />`}
     ${overlays.dialog && html`<${Dialog} dialog=${overlays.dialog} />`}
     ${overlays.toast && html`<${Toast} toast=${overlays.toast} />`}
