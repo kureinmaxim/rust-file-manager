@@ -21,10 +21,24 @@ const CSP: &str = "default-src 'none'; script-src 'self' https://telegram.org; \
     connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; \
     frame-ancestors https://web.telegram.org";
 
+/// GET and HEAD: a HEAD that matched no route here would fall through to the
+/// web UI's login guard and get its 401.
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.route("/tg", web::get().to(redirect))
-        .route("/tg/", web::get().to(index))
-        .route("/tg/assets/{path:.*}", web::get().to(asset));
+    cfg.service(
+        web::resource("/tg")
+            .route(web::get().to(redirect))
+            .route(web::head().to(redirect)),
+    )
+    .service(
+        web::resource("/tg/")
+            .route(web::get().to(index))
+            .route(web::head().to(index)),
+    )
+    .service(
+        web::resource("/tg/assets/{path:.*}")
+            .route(web::get().to(asset))
+            .route(web::head().to(asset)),
+    );
 }
 
 async fn redirect() -> HttpResponse {
@@ -114,6 +128,17 @@ mod tests {
         )
         .await;
         assert_eq!(cached.status(), StatusCode::NOT_MODIFIED);
+
+        let head = test::call_service(
+            &app,
+            test::TestRequest::default()
+                .method(actix_web::http::Method::HEAD)
+                .uri("/tg/")
+                .to_request(),
+        )
+        .await;
+        assert_eq!(head.status(), StatusCode::OK);
+        assert!(head.headers().contains_key(header::CONTENT_SECURITY_POLICY));
 
         let js = test::call_service(
             &app,

@@ -17,7 +17,7 @@ use actix_web::http::header::{
 };
 use actix_web::http::StatusCode;
 use actix_web::middleware::{from_fn, Next};
-use actix_web::{delete, get, post, web, Error, HttpMessage, HttpRequest, HttpResponse};
+use actix_web::{delete, get, post, route, web, Error, HttpMessage, HttpRequest, HttpResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -1115,7 +1115,10 @@ fn inline_safe(mime: &str) -> bool {
     ) || mime.starts_with("audio/")
 }
 
-#[get("/d/{token}")]
+// HEAD too: Telegram's WebApp.downloadFile asks for the size with HEAD before
+// downloading. Without it HEAD fell through to the web UI's login guard and
+// Telegram showed the size of its 401 JSON (57 bytes) instead of the file's.
+#[route("/d/{token}", method = "GET", method = "HEAD")]
 async fn signed_download(
     req: HttpRequest,
     token: web::Path<String>,
