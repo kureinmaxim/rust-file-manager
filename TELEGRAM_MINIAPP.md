@@ -6,6 +6,9 @@ TelegramOnly → мини-приложение по адресу `https://files.
 Telegram к существующему аккаунту (или регистрация по приглашению).
 
 План и устройство: [TELEGRAM_MINIAPP_PLAN.md](TELEGRAM_MINIAPP_PLAN.md).
+Все команды установки и обновления вместе с ботом:
+[DEPLOYwTELEGRAM.md](DEPLOYwTELEGRAM.md), [POST_DEPLOYwTELEGRAM.md](POST_DEPLOYwTELEGRAM.md);
+схема сервера и хранения файлов — [ARCHITECTUREwTELEGRAM.md](ARCHITECTUREwTELEGRAM.md).
 Макет экранов: [design/miniapp-mockup.html](design/miniapp-mockup.html).
 
 ## Что уже работает (версия 1.5.0, этапы 0–1 плана)
