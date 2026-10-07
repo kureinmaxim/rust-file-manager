@@ -136,10 +136,35 @@
         dialog h2 { font-size:20px; margin:0 0 10px; }
         dialog p { color:var(--muted); font-size:14px; margin:0 0 18px; }
         .dialog-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:22px; }
+        .badge { display:inline-grid; place-items:center; min-width:20px; height:20px; padding:0 6px; border-radius:10px; background:#d9930b; color:white; font-size:11px; font-weight:700; line-height:1; }
+        .zone-button .badge { margin-left:auto; }
+        .exchange-notice { display:flex; align-items:center; gap:10px 14px; flex-wrap:wrap; padding:14px 18px; margin-bottom:22px; background:#fff8e8; border-color:#f1d9a0; color:#6b4b00; font-size:14px; }
+        .exchange-notice .icon { color:#c07c00; }
+        .exchange-notice .button { margin-left:auto; }
+        .exchange-card { margin-bottom:12px; overflow:hidden; }
+        .exchange-card > summary { display:flex; align-items:center; gap:10px; padding:14px 18px; min-height:52px; cursor:pointer; list-style:none; background:#fbfcfd; font-size:14px; font-weight:600; }
+        .exchange-card > summary::-webkit-details-marker { display:none; }
+        .exchange-card > summary .chevron { margin-left:auto; width:16px; transition:transform .15s; }
+        .exchange-card[open] > summary .chevron { transform:rotate(90deg); }
+        .exchange-name { min-width:0; overflow-wrap:anywhere; }
+        .exchange-intro { margin:0 0 12px; color:var(--muted); font-size:13px; }
+        .exchange-body { padding:16px 18px 18px; }
+        .exchange-card > summary + .exchange-body { border-top:1px solid #edf1f5; }
+        .exchange-drop { min-height:84px; }
+        .exchange-progress { margin-top:12px; }
+        .exchange-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; margin-top:16px; }
+        .exchange-box { border:1px solid var(--border); border-radius:12px; overflow:hidden; background:white; min-width:0; }
+        .exchange-box h3 { display:flex; align-items:center; gap:8px; margin:0; padding:11px 14px; font-size:13px; }
+        .exchange-box h3 .count { margin-left:auto; background:white; }
+        .exchange-box.incoming h3 { background:#eef8f3; color:#185c46; }
+        .exchange-box.outgoing h3 { background:#eef3fb; color:#2f4f75; }
+        .exchange-box .file-row { padding:12px 14px; }
+        .exchange-empty { margin:0; padding:16px 14px; color:var(--muted); font-size:13px; border-top:1px solid #edf1f5; }
         .move-fields { display:grid; gap:12px; margin-bottom:6px; }
         dialog .move-hint { margin:0; font-size:13px; }
         .dialog-error { color:var(--danger); font-size:13px; margin-top:10px; overflow-wrap:anywhere; }
         @media (max-width:1000px) {
+            .exchange-columns { grid-template-columns:minmax(0,1fr); }
             .layout { display:block; }
             .sidebar { position:static; height:auto; padding:16px 24px; gap:16px; }
             .brand { font-size:15px; }
@@ -151,7 +176,7 @@
         }
         @media (max-width:600px) {
             .sidebar { padding:14px 16px; }
-            .zone-nav { gap:4px; }
+            .zone-nav { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
             .zone-button { flex:1; padding:8px 7px; justify-content:center; gap:5px; font-size:12px; white-space:nowrap; }
             .zone-button .icon { width:16px; height:16px; }
             .main { padding:22px 16px; }
@@ -176,6 +201,9 @@
             .file-actions { width:100%; justify-content:flex-end; padding-top:4px; border-top:1px solid #edf1f5; gap:8px; }
             .file-actions .icon-button { background:#f4f7f9; }
             .category > summary { padding:13px 14px; }
+            .exchange-body { padding:14px; }
+            .exchange-card > summary { padding:13px 14px; }
+            .exchange-notice .button { width:100%; margin:0; }
             .folder { margin-left:10px; }
             .folder-tools { padding:6px 12px 10px; }
             .folder-tools .button { flex:1 1 calc(50% - 6px); }
@@ -202,6 +230,10 @@
     <symbol id="edit" viewBox="0 0 24 24"><path d="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14Z"/></symbol>
     <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18m-12 0V3h6v3M5 6l1 15h12l1-15M9 10v7m6-7v7"/></symbol>
     <symbol id="chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="swap" viewBox="0 0 24 24"><path d="M4 8h14m-4-4 4 4-4 4M20 16H6m4-4-4 4 4 4"/></symbol>
+    <symbol id="inbox" viewBox="0 0 24 24"><path d="M3 13h5l2 3h4l2-3h5M3 13l3-8h12l3 8v6H3Z"/></symbol>
+    <symbol id="send" viewBox="0 0 24 24"><path d="M21 3 3 10l7 3 3 7 8-17ZM10 13l5-5"/></symbol>
+    <symbol id="copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></symbol>
     <symbol id="move" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3Z"/><path d="M8 14h8m-3-3 3 3-3 3"/></symbol>
     <symbol id="folder-plus" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3Z"/><path d="M12 11v6m-3-3h6"/></symbol>
 </svg>
@@ -215,9 +247,10 @@
                 <button type="button" class="zone-button" data-zone="all" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="#folder"/></svg>Все файлы</button>
                 <button type="button" class="zone-button" data-zone="my" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#lock"/></svg>Мои файлы</button>
                 <button type="button" class="zone-button" data-zone="shared" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#users"/></svg>Общие файлы</button>
+                <button type="button" class="zone-button" data-zone="exchange" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#swap"/></svg>Обмен{{#if exchange.incoming_count}}<span class="badge" aria-label="Пришло файлов: {{exchange.incoming_count}}">{{exchange.incoming_count}}</span>{{/if}}</button>
             </div>
         </nav>
-        <div class="sidebar-note"><strong>Ваше личное облако</strong>Личные файлы видны только вам. Общие доступны всем участникам.</div>
+        <div class="sidebar-note"><strong>Ваше личное облако</strong>Личные файлы видны только вам. Общие доступны всем участникам. Обмен — только вам и {{#if is_admin}}одному участнику{{else}}администратору{{/if}}.</div>
     </aside>
     <main class="main">
         <header class="topbar">
@@ -228,9 +261,12 @@
                 <button class="button" id="logoutBtn" type="button">Выйти</button>
             </div>
         </header>
+        {{#if exchange.incoming_count}}
+        <div class="panel exchange-notice" role="status"><svg class="icon" aria-hidden="true"><use href="#inbox"/></svg><span>{{#if exchange.is_admin}}Участники прислали вам файлы: <strong>{{exchange.incoming_count}}</strong>{{else}}Администратор прислал вам файлы: <strong>{{exchange.incoming_count}}</strong>{{/if}}</span><button class="button compact" type="button" data-show-exchange><svg class="icon" aria-hidden="true"><use href="#swap"/></svg>Открыть обмен</button></div>
+        {{/if}}
         <section class="panel upload-panel" aria-labelledby="uploadHeading">
             <div class="panel-heading"><h2 id="uploadHeading">Добавить файлы</h2><span class="muted">До {{max_file_size}} на файл</span></div>
-            <form id="uploadForm" enctype="multipart/form-data" data-max-size="{{max_file_size_bytes}}">
+            <form id="uploadForm" enctype="multipart/form-data" data-max-size="{{max_file_size_bytes}}" data-max-label="{{max_file_size}}">
                 <label class="dropzone" id="dropzone" for="fileInput">
                     <span class="upload-icon"><svg class="icon" aria-hidden="true"><use href="#upload"/></svg></span>
                     <span><strong>Выберите файлы или перетащите их сюда</strong><span class="muted">Можно загрузить несколько файлов за раз</span></span>
@@ -273,6 +309,23 @@
             {{#unless this.categories}}<div class="panel empty zone-empty"><svg class="icon" aria-hidden="true"><use href="#folder"/></svg><h3>Здесь пока нет файлов</h3><p>Выберите эту область в форме загрузки, чтобы добавить первый файл, или создайте папку.</p></div>{{/unless}}
         </section>
         {{/each}}
+        <section class="zone exchange" data-scope="exchange" id="exchange" aria-labelledby="exchangeHeading">
+            <div class="zone-title"><h2 id="exchangeHeading"><svg class="icon" aria-hidden="true"><use href="#swap"/></svg>Обмен</h2><span class="zone-size">{{#if exchange.is_admin}}С каждым участником отдельно{{else}}Только вы и администратор{{/if}}</span></div>
+            {{#if exchange.is_admin}}
+            <p class="exchange-intro">Файлы, которые вы отправляете участнику, видит только он. Присланное им можно сохранить копией в «Мои файлы».</p>
+            {{#each exchange.partners}}
+            <details class="panel exchange-card" data-owner="{{this.owner}}"{{#if this.incoming_count}} open{{/if}}>
+                <summary><svg class="icon" aria-hidden="true"><use href="#users"/></svg><span class="exchange-name">{{this.owner}}</span>{{#if this.incoming_count}}<span class="badge" aria-label="Прислал файлов: {{this.incoming_count}}">{{this.incoming_count}}</span>{{/if}}<span class="count"></span><svg class="icon chevron" aria-hidden="true"><use href="#chevron"/></svg></summary>
+                {{> exchange_body}}
+            </details>
+            {{/each}}
+            {{#unless exchange.partners}}<div class="panel empty"><svg class="icon" aria-hidden="true"><use href="#users"/></svg><h3>Участников пока нет</h3><p>Пригласите человека в «Управление участниками» — у вас появится общий с ним обмен.</p></div>{{/unless}}
+            {{else}}
+            <div class="panel exchange-card" data-owner="{{exchange.owner}}">
+                {{#with exchange}}{{> exchange_body}}{{/with}}
+            </div>
+            {{/if}}
+        </section>
         {{#if is_admin}}
         <details class="panel admin"><summary>Управление участниками</summary><div class="admin-body">
             <div class="invite-row"><button class="button" type="button" id="inviteBtn">Создать приглашение</button><span class="muted">Для одной регистрации, действует 7 дней</span></div>
@@ -406,9 +459,34 @@ function filterFiles() {
             zoneMatches += matches;
             if (matchesZone) total += rows.length;
         });
+        zone.querySelectorAll('.exchange-card').forEach(card => {
+            card.querySelectorAll('.files').forEach(list => {
+                Array.from(list.children).sort((a,b) => {
+                    // Exchange reads like a mailbox: newest first unless sorted by size.
+                    if (sort === 'size') return Number(b.dataset.size) - Number(a.dataset.size);
+                    return Number(b.dataset.modified || 0) - Number(a.dataset.modified || 0);
+                }).forEach(row => list.append(row));
+            });
+            const rows = Array.from(card.querySelectorAll('.file-row'));
+            let matches = 0;
+            rows.forEach(row => {
+                row.hidden = !row.dataset.name.toLocaleLowerCase('ru').includes(query);
+                if (!row.hidden) matches++;
+            });
+            const nameMatches = Boolean(query) && (card.dataset.owner || '').includes(query);
+            card.hidden = Boolean(query) && !matches && !nameMatches;
+            const count = card.querySelector(':scope > summary .count');
+            if (count) count.textContent = matches;
+            if (query && matches && card.tagName === 'DETAILS') card.open = true;
+            if (!card.hidden) zoneShown = true;
+            zoneMatches += matches;
+            if (matchesZone) total += rows.length;
+        });
         if (matchesZone) { visible += zoneMatches; if (zoneShown) anyShown = true; }
         if (query && !zoneShown) zone.hidden = true;
     });
+    $('uploadForm').closest('.upload-panel').hidden = activeZone === 'exchange';
+    document.querySelectorAll('.exchange-notice').forEach(notice => { notice.hidden = activeZone === 'exchange'; });
     $('resultsCount').textContent = query ? `Найдено: ${visible} из ${total}` : `Файлов: ${total}`;
     $('noResults').hidden = !query || visible > 0 || anyShown;
     $('resetFilters').hidden = !query && activeZone === 'all' && sort === 'name';
@@ -421,11 +499,11 @@ function filterFiles() {
 }
 const initial = new URLSearchParams(location.search);
 $('searchInput').value = initial.get('q') || '';
-if (['my','shared'].includes(initial.get('zone'))) activeZone = initial.get('zone');
+if (['my','shared','exchange'].includes(initial.get('zone'))) activeZone = initial.get('zone');
 if (['recent','size'].includes(initial.get('sort'))) $('sortSelect').value = initial.get('sort');
 document.querySelectorAll('[data-zone]').forEach(button => button.addEventListener('click', () => {
     activeZone = button.dataset.zone;
-    if (!uploading && activeZone !== 'all') $('zoneSelect').value = activeZone;
+    if (!uploading && ['my','shared'].includes(activeZone)) $('zoneSelect').value = activeZone;
     filterFiles();
 }));
 $('searchInput').addEventListener('input', filterFiles);
@@ -453,7 +531,7 @@ async function updateListing() {
     if (!response.ok) throw new Error('Не удалось обновить список файлов.');
     const documentCopy=new DOMParser().parseFromString(await response.text(),'text/html');
     const incoming=Array.from(documentCopy.querySelectorAll('.zone'));
-    if (incoming.length!==2) throw new Error('Не удалось обновить список файлов.');
+    if (incoming.length!==document.querySelectorAll('.zone').length) throw new Error('Не удалось обновить список файлов.');
     document.querySelectorAll('.zone').forEach((zone,index) => zone.replaceWith(incoming[index]));
     decorateFiles(); restoreFolders(); filterFiles();
 }
@@ -608,12 +686,34 @@ function updateMoveFields(preferredPath) {
 $('moveZone').addEventListener('change',() => updateMoveFields($('moveFolder').value));
 $('moveCategory').addEventListener('change',() => updateMoveFields($('moveFolder').value));
 document.addEventListener('click', async event => {
-    const button=event.target.closest('[data-copy],[data-delete],[data-rename],[data-move],[data-delete-user],[data-upload-here],[data-new-folder],[data-rename-folder],[data-delete-folder]');
+    const button=event.target.closest('[data-exchange-save],[data-exchange-delete],[data-show-exchange],[data-copy],[data-delete],[data-rename],[data-move],[data-delete-user],[data-upload-here],[data-new-folder],[data-rename-folder],[data-delete-folder]');
     if (!button) return;
     if (uploading) { showStatus('Дождитесь завершения загрузки перед управлением файлами.',false); return; }
     const { scope,category,file }=button.dataset;
     const path=button.dataset.path || '';
     const fileTarget=() => '/' + [scope,category,file].map(encodeURIComponent).join('/');
+    if (button.hasAttribute('data-show-exchange')) {
+        activeZone='exchange'; filterFiles();
+        $('exchange').scrollIntoView({ behavior:'smooth', block:'start' });
+        return;
+    }
+    if (button.hasAttribute('data-exchange-save')) {
+        button.disabled=true;
+        try {
+            const data=await apiCall(button.dataset.url + '/save',{method:'POST'});
+            rememberExchange(button.closest('.exchange-card').dataset.owner);
+            refresh(data.message);
+        } catch (error) { showStatus(error.message,false); button.disabled=false; }
+        return;
+    }
+    if (button.hasAttribute('data-exchange-delete')) {
+        openDialog('Удалить из обмена?',`«${file}» исчезнет из обмена у обоих. Копии, сохранённые в «Мои файлы», останутся.`,null,'',async () => {
+            const data=await apiCall(button.dataset.url,{method:'DELETE'});
+            rememberExchange(button.closest('.exchange-card').dataset.owner);
+            refresh(data.message);
+        },true);
+        return;
+    }
     if (button.hasAttribute('data-copy')) {
         const url=new URL(fileURL(scope,category,file,path),location.origin).href;
         await copyURL(url,scope==='my' ? 'Ссылка скопирована. Этот файл доступен только вашему аккаунту.' : 'Ссылка скопирована. Для открытия требуется вход.');
@@ -680,6 +780,75 @@ document.addEventListener('click', async event => {
         },true);
     }
 });
+// «Обмен»: files go straight to the other side as soon as they are picked or dropped.
+function rememberExchange(owner) { try { sessionStorage.setItem('rfm-exchange-focus', owner); } catch { /* optional */ } }
+try {
+    const focus=sessionStorage.getItem('rfm-exchange-focus');
+    if (focus!==null) {
+        sessionStorage.removeItem('rfm-exchange-focus');
+        const card=Array.from(document.querySelectorAll('.exchange-card')).find(c => c.dataset.owner===focus);
+        if (card) { if (card.tagName==='DETAILS') card.open=true; card.scrollIntoView({ block:'start' }); }
+    }
+} catch { /* the page works without browser storage */ }
+function postFile(url, file, onProgress) {
+    return new Promise((resolve,reject) => {
+        const xhr=new XMLHttpRequest();
+        xhr.open('POST',url); xhr.responseType='json'; xhr.setRequestHeader('Accept','application/json');
+        xhr.upload.addEventListener('progress', event => { if (event.lengthComputable) onProgress(Math.round(event.loaded/event.total*100)); });
+        xhr.onload=() => {
+            if (xhr.status===401) { reject(unauthorized()); return; }
+            if (xhr.status>=200 && xhr.status<300 && xhr.response && xhr.response.success) resolve(xhr.response);
+            else reject(new Error(xhr.response && xhr.response.message || `Ошибка отправки (${xhr.status}). Повторите попытку.`));
+        };
+        xhr.onerror=() => reject(new Error('Соединение прервано. Проверьте обмен перед повторной отправкой.'));
+        const data=new FormData(); data.append('file',file); xhr.send(data);
+    });
+}
+async function sendToExchange(owner, fileList, card) {
+    const files=Array.from(fileList || []);
+    if (!files.length) return;
+    if (uploading) { showStatus('Дождитесь завершения текущей загрузки.',false); return; }
+    const form=$('uploadForm');
+    const tooBig=files.find(file => file.size>Number(form.dataset.maxSize));
+    if (tooBig) { showStatus(`«${tooBig.name}» больше лимита ${form.dataset.maxLabel} на файл.`,false); return; }
+    uploading=true;
+    const box=card.querySelector('.exchange-progress');
+    const label=box.querySelector('.exchange-progress-label'), percent=box.querySelector('.exchange-progress-percent'), bar=box.querySelector('progress');
+    box.hidden=false; card.setAttribute('aria-busy','true');
+    const url='/exchange/' + encodeURIComponent(owner) + '/upload';
+    let sent=0, lastMessage='', failure=null;
+    for (const [index,file] of files.entries()) {
+        label.textContent=`Файл ${index+1} из ${files.length}: ${file.name}`;
+        bar.value=0; percent.textContent='0%';
+        try {
+            const data=await postFile(url,file,value => { bar.value=value; percent.textContent=value+'%'; });
+            sent++; lastMessage=data.message;
+        } catch (error) { failure=error; if (error.message==='Требуется повторный вход') break; }
+    }
+    uploading=false; card.removeAttribute('aria-busy');
+    rememberExchange(owner);
+    if (!failure) { refresh(sent===1 ? lastMessage : `Отправлено файлов: ${sent}.`); return; }
+    box.hidden=true;
+    showStatus(sent ? `Отправлено ${sent} из ${files.length}. ${failure.message}` : failure.message,false);
+    if (sent) updateListing().catch(() => {});
+}
+document.addEventListener('change', event => {
+    const input=event.target.closest && event.target.closest('[data-exchange-input]');
+    if (!input) return;
+    sendToExchange(input.dataset.owner,input.files,input.closest('.exchange-card'));
+    input.value='';
+});
+document.addEventListener('dragover', event => {
+    const drop=event.target.closest && event.target.closest('[data-exchange-drop]');
+    if (!drop) return;
+    event.preventDefault(); if (!uploading) drop.classList.add('dragover');
+});
+['dragleave','drop'].forEach(type => document.addEventListener(type, event => {
+    const drop=event.target.closest && event.target.closest('[data-exchange-drop]');
+    if (!drop) return;
+    event.preventDefault(); drop.classList.remove('dragover');
+    if (type==='drop') sendToExchange(drop.dataset.owner,event.dataTransfer.files,drop.closest('.exchange-card'));
+}));
 const inviteBtn=$('inviteBtn');
 if (inviteBtn) {
     inviteBtn.addEventListener('click',async () => {

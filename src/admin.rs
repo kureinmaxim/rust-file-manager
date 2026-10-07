@@ -80,6 +80,8 @@ pub async fn delete_user(
         }
     }
 
+    crate::exchange::remove_all(&config, &username);
+
     tracing::info!(user = %username, "user deleted");
     HttpResponse::Ok().json(AdminResponse {
         success: true,

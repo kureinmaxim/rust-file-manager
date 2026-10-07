@@ -231,3 +231,5 @@ button.row:active, .tap:active { transform: scale(.985); }
   #app { max-width: 720px; margin: 0 auto; }
   .grid { grid-template-columns: repeat(5, 1fr); }
 }
+.badge { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 11px; background: var(--accent); color: var(--accent-text); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.seg button small { color: var(--hint); font-weight: 400; }

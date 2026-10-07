@@ -78,6 +78,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
                     .service(rename_item)
                     .service(delete_item)
                     .service(make_link)
+                    .configure(crate::exchange::configure_api)
                     .configure(uploads::configure),
             ),
     );
@@ -1050,6 +1051,7 @@ async fn make_link(
             n: name,
             d: disposition,
             exp,
+            x: None,
         },
     );
     reply::ok(json!({ "url": format!("/d/{token}"), "expires_at": exp }))
@@ -1057,7 +1059,7 @@ async fn make_link(
 
 /// `filename*` (RFC 6266/5987) carries the real UTF-8 name; plain `filename`
 /// is an ASCII fallback for old clients, so Cyrillic names survive downloads.
-fn disposition(kind: DispositionType, name: &str) -> ContentDisposition {
+pub(crate) fn disposition(kind: DispositionType, name: &str) -> ContentDisposition {
     let ascii: String = name
         .chars()
         .map(|c| {
@@ -1123,10 +1125,14 @@ async fn signed_download(
     {
         return Ok(expired());
     }
-    let path = match RelPath::parse(&claims.p)
-        .map_err(StorageError::Path)
-        .and_then(|rel| file_path(&config, claims.z, &claims.u, &claims.c, &rel, &claims.n))
-    {
+    let target = match &claims.x {
+        // «Обмен»: the link's user must still be one of the two parties.
+        Some(owner) => crate::exchange::link_target(&config, &store, &claims, owner),
+        None => RelPath::parse(&claims.p)
+            .map_err(StorageError::Path)
+            .and_then(|rel| file_path(&config, claims.z, &claims.u, &claims.c, &rel, &claims.n)),
+    };
+    let path = match target {
         Ok(p) if p.is_file() => p,
         Ok(_) => return Ok(reply::storage(StorageError::NotFound)),
         Err(e) => return Ok(reply::storage(e)),

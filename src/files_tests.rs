@@ -64,6 +64,19 @@ impl Env {
                         HttpResponse::Ok().finish()
                     }),
                 )
+                .route(
+                    "/test-login-admin",
+                    web::get().to(|session: Session| async move {
+                        auth::sign_in_for_tests(&session, "admin", true);
+                        HttpResponse::Ok().finish()
+                    }),
+                )
+                .service(
+                    web::scope("/admin")
+                        .wrap(from_fn(auth::require_admin))
+                        .wrap(from_fn(auth::require_auth))
+                        .service(crate::admin::delete_user),
+                )
                 .service(
                     web::scope("")
                         .wrap(from_fn(auth::require_auth))
@@ -75,7 +88,11 @@ impl Env {
                         .service(files::download)
                         .service(files::create_folder)
                         .service(files::rename_folder)
-                        .service(files::delete_folder),
+                        .service(files::delete_folder)
+                        .service(crate::exchange::web_upload)
+                        .service(crate::exchange::web_download)
+                        .service(crate::exchange::web_delete)
+                        .service(crate::exchange::web_save),
                 ),
         )
         .await
@@ -92,13 +109,12 @@ async fn sign_in(
     app: &impl Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
     user: &str,
 ) -> Cookie<'static> {
-    let resp = test::call_service(
-        app,
-        test::TestRequest::get()
-            .uri(&format!("/test-login/{user}"))
-            .to_request(),
-    )
-    .await;
+    let uri = if user == "admin" {
+        "/test-login-admin".to_string()
+    } else {
+        format!("/test-login/{user}")
+    };
+    let resp = test::call_service(app, test::TestRequest::get().uri(&uri).to_request()).await;
     resp.response().cookies().next().unwrap().into_owned()
 }
 
@@ -597,4 +613,155 @@ async fn files_move_between_zones_and_folders_without_overwriting() {
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+}
+
+fn exchange_upload(owner: &str, name: &str, body: &[u8]) -> test::TestRequest {
+    let mut req = upload("x", &[], name, body);
+    req = req.uri(&format!("/exchange/{}/upload", enc(owner)));
+    req
+}
+
+async fn page(
+    app: &impl Service<actix_http::Request, Response = ServiceResponse, Error = actix_web::Error>,
+    cookie: &Cookie<'static>,
+) -> String {
+    let resp = test::call_service(
+        app,
+        test::TestRequest::get()
+            .uri("/")
+            .cookie(cookie.clone())
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    String::from_utf8(test::read_body(resp).await.to_vec()).unwrap()
+}
+
+#[actix_web::test]
+async fn exchange_is_private_to_the_admin_and_one_user() {
+    use std::os::unix::fs::MetadataExt;
+
+    let env = Env::new();
+    let app = env.app().await;
+    let admin = sign_in(&app, "admin").await;
+    let anna = sign_in(&app, "anna").await;
+    let bob = sign_in(&app, "bob").await;
+    let exchange = env.uploads().join("exchange");
+
+    // Admin → Anna.
+    let (status, body) = call(
+        &app,
+        &admin,
+        exchange_upload("anna", "договор #1.pdf", b"DOC"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let sent = exchange.join("anna/from-admin/договор #1.pdf");
+    assert_eq!(fs::read(&sent).unwrap(), b"DOC");
+    assert!(page(&app, &anna).await.contains("договор #1.pdf"));
+    assert!(page(&app, &admin).await.contains("договор #1.pdf"));
+    assert!(!page(&app, &bob).await.contains("договор #1.pdf"));
+
+    // Bob reaches none of it: not by name, not by sending into it.
+    let file = format!("/exchange/anna/from-admin/{}", enc("договор #1.pdf"));
+    for req in [
+        test::TestRequest::get().uri(&file),
+        test::TestRequest::delete().uri(&file),
+        test::TestRequest::post().uri(&format!("{file}/save")),
+    ] {
+        let (status, _) = call(&app, &bob, req).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+    let (status, _) = call(&app, &bob, exchange_upload("anna", "x.pdf", b"X")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    // A user cannot open an "exchange" of the admin or of an unknown user either.
+    for owner in ["admin", "zed"] {
+        let (status, _) = call(&app, &anna, exchange_upload(owner, "x.pdf", b"X")).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{owner}");
+    }
+    let (status, _) = call(&app, &admin, exchange_upload("zed", "x.pdf", b"X")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!exchange.join("zed").exists());
+    for (inbox, name) in [
+        ("other", "a.pdf"),
+        ("from-admin", ".."),
+        ("from-admin", " a.pdf"),
+    ] {
+        let (status, _) = call(
+            &app,
+            &anna,
+            test::TestRequest::get().uri(&format!("/exchange/anna/{inbox}/{}", enc(name))),
+        )
+        .await;
+        assert!(status.is_client_error(), "{inbox}/{name}: {status}");
+    }
+
+    // Anna downloads it and saves a copy: a hard link, the original stays.
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&file)
+            .cookie(anna.clone())
+            .to_request(),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(test::read_body(resp).await.as_ref(), b"DOC");
+    for expected in ["договор #1.pdf", "договор #1(1).pdf"] {
+        let (status, body) = call(
+            &app,
+            &anna,
+            test::TestRequest::post().uri(&format!("{file}/save")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["name"], expected);
+        let copy = env.uploads().join("home/anna/Документы").join(expected);
+        assert_eq!(fs::read(&copy).unwrap(), b"DOC");
+        assert_eq!(
+            fs::metadata(&copy).unwrap().ino(),
+            fs::metadata(&sent).unwrap().ino()
+        );
+    }
+    assert!(sent.is_file());
+
+    // Anna → admin; the admin saves it into the admin's own files.
+    let (status, _) = call(&app, &anna, exchange_upload("anna", "отчёт.xlsx", b"XLS")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(exchange.join("anna/from-user/отчёт.xlsx").is_file());
+    let report = format!("/exchange/anna/from-user/{}", enc("отчёт.xlsx"));
+    let (status, _) = call(
+        &app,
+        &admin,
+        test::TestRequest::post().uri(&format!("{report}/save")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        fs::read(env.uploads().join("home/admin/Документы/отчёт.xlsx")).unwrap(),
+        b"XLS"
+    );
+
+    // Either side may delete; a planted symlink is never followed.
+    let (status, _) = call(&app, &anna, test::TestRequest::delete().uri(&report)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!exchange.join("anna/from-user/отчёт.xlsx").exists());
+    let outside = env.dir.join("outside");
+    fs::create_dir_all(&outside).unwrap();
+    std::os::unix::fs::symlink(&outside, exchange.join("bob")).unwrap();
+    let (status, _) = call(&app, &bob, exchange_upload("bob", "x.pdf", b"X")).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = call(&app, &admin, exchange_upload("bob", "x.pdf", b"X")).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+
+    // Deleting a user removes their exchange too.
+    let (status, _) = call(
+        &app,
+        &admin,
+        test::TestRequest::delete().uri("/admin/users/anna"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!exchange.join("anna").exists());
 }

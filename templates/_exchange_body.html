@@ -1,0 +1,23 @@
+<div class="exchange-body">
+    <label class="dropzone exchange-drop" data-exchange-drop data-owner="{{owner}}">
+        <span class="upload-icon"><svg class="icon" aria-hidden="true"><use href="#send"/></svg></span>
+        <span><strong>{{send_label}}</strong><span class="muted">Перетащите файлы сюда или нажмите, чтобы выбрать</span></span>
+        <input class="sr-only" type="file" multiple data-exchange-input data-owner="{{owner}}" aria-label="{{send_label}}">
+    </label>
+    <div class="exchange-progress" hidden>
+        <div class="progress-label"><span class="exchange-progress-label" role="status">Отправка…</span><span class="exchange-progress-percent"></span></div>
+        <progress max="100" value="0" aria-label="Прогресс отправки"></progress>
+    </div>
+    <div class="exchange-columns">
+        <section class="exchange-box incoming" aria-label="{{incoming_title}}">
+            <h3><svg class="icon" aria-hidden="true"><use href="#inbox"/></svg>{{incoming_title}}<span class="count">{{incoming_count}}</span></h3>
+            <ul class="files">{{#each incoming}}{{> exchange_row}}{{/each}}</ul>
+            {{#unless incoming}}<p class="exchange-empty">Пока ничего не пришло</p>{{/unless}}
+        </section>
+        <section class="exchange-box outgoing" aria-label="{{outgoing_title}}">
+            <h3><svg class="icon" aria-hidden="true"><use href="#send"/></svg>{{outgoing_title}}<span class="count">{{outgoing_count}}</span></h3>
+            <ul class="files">{{#each outgoing}}{{> exchange_row}}{{/each}}</ul>
+            {{#unless outgoing}}<p class="exchange-empty">Вы ещё ничего не отправляли</p>{{/unless}}
+        </section>
+    </div>
+</div>

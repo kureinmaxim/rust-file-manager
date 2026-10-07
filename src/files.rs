@@ -288,6 +288,18 @@ pub fn templates() -> Handlebars<'static> {
         .register_partial("folder", include_str!("../templates/_folder.html"))
         .expect("invalid folder partial");
     handlebars
+        .register_partial(
+            "exchange_body",
+            include_str!("../templates/_exchange_body.html"),
+        )
+        .expect("invalid exchange_body partial");
+    handlebars
+        .register_partial(
+            "exchange_row",
+            include_str!("../templates/_exchange_row.html"),
+        )
+        .expect("invalid exchange_row partial");
+    handlebars
 }
 
 #[get("/")]
@@ -344,6 +356,7 @@ pub async fn index(
                 "zones": zones,
                 "users": users,
                 "categories": all_categories,
+                "exchange": crate::exchange::page_data(&config, &store, &user),
                 "max_file_size": format_bytes(config.max_file_size as u64),
                 "max_file_size_bytes": config.max_file_size,
                 "version": env!("CARGO_PKG_VERSION"),
