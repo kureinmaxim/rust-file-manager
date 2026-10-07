@@ -1,0 +1,1501 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Интерактивный макет мини-приложения «Файлы». План: ../TELEGRAM_MINIAPP_PLAN.md -->
+<title>Файлы в Telegram</title>
+<style>
+/* Layout: annotated prototype. Screen index | phone with a live Mini App | notes on what each screen calls.
+   The phone uses Telegram's own theme variable names so this CSS maps 1:1 onto WebApp.themeParams. */
+:root {
+  /* shell */
+  --sh-bg: #e9eef1; --sh-surface: #f8fafb; --sh-text: #10202a; --sh-muted: #586a76;
+  --sh-line: #d3dde3; --sh-brand: #087f75; --sh-brand-soft: #d7ece8; --sh-code: #eef3f5;
+  --bezel: #0c1114; --shadow: rgba(16,32,42,.18);
+  /* telegram theme (light) */
+  --tg-bg: #ffffff; --tg-secondary-bg: #f0f2f5; --tg-section-bg: #ffffff; --tg-text: #0c1116;
+  --tg-hint: #8b96a1; --tg-link: #2a8bd8; --tg-button: #2f8ee0; --tg-button-text: #ffffff;
+  --tg-header-bg: #ffffff; --tg-bottom-bar-bg: #ffffff; --tg-accent: #2a8bd8;
+  --tg-section-header: #6d7882; --tg-destructive: #e2453c; --tg-separator: #e3e7eb;
+  --tg-fill: rgba(116,128,140,.13); --tg-overlay: rgba(10,16,22,.42); --tg-toast: rgba(28,34,40,.92); --tg-toast-text: #ffffff;
+  /* chat */
+  --chat-bg: #cbd9bb; --chat-dot: rgba(70,100,60,.13); --bubble-in: #ffffff; --bubble-out: #e1f6cd;
+  --bubble-meta: #5e9b57; --kb-bg: rgba(40,70,45,.34); --kb-text: #ffffff;
+  /* file categories */
+  --c-photo: #8f5ae0; --c-doc: #2f7de1; --c-video: #e2476a; --c-prog: #23a564; --c-backup: #e28b2a;
+  --c-other: #7d8ba0; --c-ok: #2fa55a; --c-warn: #d98a1c;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sh-bg: #0b141a; --sh-surface: #111e26; --sh-text: #dfe9ee; --sh-muted: #8ea3af;
+    --sh-line: #22343f; --sh-brand: #43c2b2; --sh-brand-soft: #11312f; --sh-code: #0f1b22;
+    --bezel: #000000; --shadow: rgba(0,0,0,.5);
+    --tg-bg: #17212b; --tg-secondary-bg: #0e1621; --tg-section-bg: #17212b; --tg-text: #f2f5f7;
+    --tg-hint: #7d8e9e; --tg-link: #6ab3f3; --tg-button: #5288c1; --tg-button-text: #ffffff;
+    --tg-header-bg: #17212b; --tg-bottom-bar-bg: #17212b; --tg-accent: #6ab3f3;
+    --tg-section-header: #6ab3f3; --tg-destructive: #ef5b5b; --tg-separator: #0b121a;
+    --tg-fill: rgba(130,150,170,.16); --tg-overlay: rgba(0,0,0,.55); --tg-toast: rgba(236,240,243,.94); --tg-toast-text: #0c1116;
+    --chat-bg: #0e1621; --chat-dot: rgba(120,150,180,.07); --bubble-in: #182533; --bubble-out: #2b5278;
+    --bubble-meta: #7da8d3; --kb-bg: #1e2c3a; --kb-text: #e9eef2;
+    --c-photo: #a982ee; --c-doc: #5a9ef0; --c-video: #f0698a; --c-prog: #43c47f; --c-backup: #f0a54d;
+    --c-other: #95a2b5; --c-ok: #4cc271; --c-warn: #f0aa45;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --sh-bg: #0b141a; --sh-surface: #111e26; --sh-text: #dfe9ee; --sh-muted: #8ea3af;
+  --sh-line: #22343f; --sh-brand: #43c2b2; --sh-brand-soft: #11312f; --sh-code: #0f1b22;
+  --bezel: #000000; --shadow: rgba(0,0,0,.5);
+  --tg-bg: #17212b; --tg-secondary-bg: #0e1621; --tg-section-bg: #17212b; --tg-text: #f2f5f7;
+  --tg-hint: #7d8e9e; --tg-link: #6ab3f3; --tg-button: #5288c1; --tg-button-text: #ffffff;
+  --tg-header-bg: #17212b; --tg-bottom-bar-bg: #17212b; --tg-accent: #6ab3f3;
+  --tg-section-header: #6ab3f3; --tg-destructive: #ef5b5b; --tg-separator: #0b121a;
+  --tg-fill: rgba(130,150,170,.16); --tg-overlay: rgba(0,0,0,.55); --tg-toast: rgba(236,240,243,.94); --tg-toast-text: #0c1116;
+  --chat-bg: #0e1621; --chat-dot: rgba(120,150,180,.07); --bubble-in: #182533; --bubble-out: #2b5278;
+  --bubble-meta: #7da8d3; --kb-bg: #1e2c3a; --kb-text: #e9eef2;
+  --c-photo: #a982ee; --c-doc: #5a9ef0; --c-video: #f0698a; --c-prog: #43c47f; --c-backup: #f0a54d;
+  --c-other: #95a2b5; --c-ok: #4cc271; --c-warn: #f0aa45;
+  color-scheme: dark;
+}
+/* Phone theme can be forced independently of the page theme (as Telegram would) */
+.phone[data-tg="light"] {
+  --tg-bg: #ffffff; --tg-secondary-bg: #f0f2f5; --tg-section-bg: #ffffff; --tg-text: #0c1116;
+  --tg-hint: #8b96a1; --tg-link: #2a8bd8; --tg-button: #2f8ee0; --tg-button-text: #ffffff;
+  --tg-header-bg: #ffffff; --tg-bottom-bar-bg: #ffffff; --tg-accent: #2a8bd8;
+  --tg-section-header: #6d7882; --tg-destructive: #e2453c; --tg-separator: #e3e7eb;
+  --tg-fill: rgba(116,128,140,.13); --tg-overlay: rgba(10,16,22,.42); --tg-toast: rgba(28,34,40,.92); --tg-toast-text: #ffffff;
+  --chat-bg: #cbd9bb; --chat-dot: rgba(70,100,60,.13); --bubble-in: #ffffff; --bubble-out: #e1f6cd;
+  --bubble-meta: #5e9b57; --kb-bg: rgba(40,70,45,.34); --kb-text: #ffffff;
+  --c-photo: #8f5ae0; --c-doc: #2f7de1; --c-video: #e2476a; --c-prog: #23a564; --c-backup: #e28b2a;
+  --c-other: #7d8ba0; --c-ok: #2fa55a; --c-warn: #d98a1c;
+  color-scheme: light;
+}
+.phone[data-tg="dark"] {
+  --tg-bg: #17212b; --tg-secondary-bg: #0e1621; --tg-section-bg: #17212b; --tg-text: #f2f5f7;
+  --tg-hint: #7d8e9e; --tg-link: #6ab3f3; --tg-button: #5288c1; --tg-button-text: #ffffff;
+  --tg-header-bg: #17212b; --tg-bottom-bar-bg: #17212b; --tg-accent: #6ab3f3;
+  --tg-section-header: #6ab3f3; --tg-destructive: #ef5b5b; --tg-separator: #0b121a;
+  --tg-fill: rgba(130,150,170,.16); --tg-overlay: rgba(0,0,0,.55); --tg-toast: rgba(236,240,243,.94); --tg-toast-text: #0c1116;
+  --chat-bg: #0e1621; --chat-dot: rgba(120,150,180,.07); --bubble-in: #182533; --bubble-out: #2b5278;
+  --bubble-meta: #7da8d3; --kb-bg: #1e2c3a; --kb-text: #e9eef2;
+  --c-photo: #a982ee; --c-doc: #5a9ef0; --c-video: #f0698a; --c-prog: #43c47f; --c-backup: #f0a54d;
+  --c-other: #95a2b5; --c-ok: #4cc271; --c-warn: #f0aa45;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { background: var(--sh-bg); }
+body { margin: 0; color: var(--sh-text); font: 15px/1.5 var(--font); padding-inline: 16px; padding-block: 28px 40px; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--sh-brand); outline-offset: 2px; }
+.icon { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 28px; }
+
+/* ---------- shell header ---------- */
+.intro { display: grid; gap: 14px; }
+.eyebrow { margin: 0; font: 600 11px/1.4 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--sh-brand); }
+.intro h1 { margin: 0; font-size: clamp(26px, 4vw, 34px); line-height: 1.15; letter-spacing: -.02em; text-wrap: balance; }
+.intro p.lead { margin: 0; max-width: 68ch; color: var(--sh-muted); }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+.controls .label { font-size: 13px; color: var(--sh-muted); }
+.pills { display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px; background: var(--sh-surface); border: 1px solid var(--sh-line); }
+.pills button { border: 0; background: transparent; padding: 6px 12px; border-radius: 7px; font-size: 13px; color: var(--sh-muted); }
+.pills button[aria-pressed="true"] { background: var(--sh-brand); color: var(--sh-surface); font-weight: 600; }
+
+/* ---------- stage ---------- */
+.stage { display: grid; grid-template-columns: 210px 404px minmax(0, 1fr); gap: 28px; align-items: start; }
+.nav { position: sticky; top: calc(16px + env(safe-area-inset-top, 0px)); display: grid; gap: 4px; }
+.nav h2 { margin: 0 0 6px 10px; font: 600 11px/1.4 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--sh-muted); }
+.nav button { display: flex; justify-content: space-between; align-items: center; gap: 8px; text-align: left; border: 0; background: transparent; padding: 8px 10px; border-radius: 9px; font-size: 14px; color: var(--sh-text); min-height: 38px; }
+.nav button:hover { background: var(--sh-surface); }
+.nav button[aria-current="true"] { background: var(--sh-surface); box-shadow: inset 3px 0 0 var(--sh-brand); font-weight: 600; }
+.stage-tag { font: 600 10px/1 var(--mono); color: var(--sh-muted); border: 1px solid var(--sh-line); border-radius: 5px; padding: 3px 5px; white-space: nowrap; }
+
+.notes { display: grid; gap: 18px; min-width: 0; }
+.note-card { background: var(--sh-surface); border: 1px solid var(--sh-line); border-radius: 14px; padding: 20px 22px; display: grid; gap: 12px; min-width: 0; }
+.note-card h3 { margin: 0; font-size: 21px; letter-spacing: -.01em; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.note-card p { margin: 0; color: var(--sh-muted); max-width: 64ch; }
+.note-sec { display: grid; gap: 8px; }
+.note-sec h4 { margin: 0; font: 600 11px/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--sh-muted); }
+.api-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.api-list li { font: 12.5px/1.45 var(--mono); background: var(--sh-code); border-radius: 7px; padding: 6px 9px; overflow-wrap: anywhere; }
+.api-list li b { color: var(--sh-brand); font-weight: 600; }
+.chips-sh { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips-sh span { font: 12px/1 var(--mono); padding: 6px 8px; border-radius: 6px; background: var(--sh-brand-soft); color: var(--sh-text); }
+.log { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; min-height: 120px; }
+.log li { font: 12px/1.45 var(--mono); color: var(--sh-muted); overflow-wrap: anywhere; }
+.log li:first-child { color: var(--sh-text); }
+.log li::before { content: "› "; color: var(--sh-brand); }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 12.5px; color: var(--sh-muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+/* ---------- phone ---------- */
+.phone-wrap { display: grid; justify-items: center; }
+.phone { width: 404px; height: 828px; padding: 7px; border-radius: 56px; background: var(--bezel); box-shadow: 0 30px 60px -20px var(--shadow), 0 0 0 1px var(--sh-line); }
+.screen { position: relative; width: 100%; height: 100%; border-radius: 49px; overflow: hidden; background: var(--tg-secondary-bg); color: var(--tg-text); display: flex; flex-direction: column; font-family: var(--font); font-size: 15px; line-height: 1.35; }
+.statusbar { flex-shrink: 0; height: 50px; padding: 14px 30px 0; display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 15px; background: var(--tg-header-bg); position: relative; font-variant-numeric: tabular-nums; }
+.island { position: absolute; left: 50%; top: 11px; width: 118px; height: 34px; margin-left: -59px; border-radius: 20px; background: var(--bezel); }
+.sb-icons { display: flex; gap: 6px; align-items: center; }
+.sb-icons svg { width: 18px; height: 12px; }
+
+.tg-head { flex-shrink: 0; height: 50px; display: grid; grid-template-columns: 96px 1fr 96px; align-items: center; padding: 0 10px; background: var(--tg-header-bg); border-bottom: .5px solid var(--tg-separator); }
+.tg-head .hl { justify-self: start; border: 0; background: transparent; color: var(--tg-link); font-size: 16px; display: flex; align-items: center; gap: 2px; padding: 8px 6px; min-height: 44px; }
+.tg-head .hl .icon { width: 20px; height: 20px; stroke-width: 2.2; }
+.tg-head .ht { text-align: center; min-width: 0; }
+.tg-head .ht b { display: block; font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tg-head .ht span { display: block; font-size: 12.5px; color: var(--tg-hint); }
+.tg-head .hr { justify-self: end; width: 32px; height: 32px; border-radius: 50%; border: 0; display: grid; place-items: center; background: var(--tg-fill); color: var(--tg-text); }
+.tg-head .hr .icon { width: 18px; height: 18px; }
+
+.content { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 14px 0 18px; scrollbar-width: thin; position: relative; }
+.bottom { flex-shrink: 0; padding: 8px 14px 30px; background: var(--tg-bottom-bar-bg); display: flex; gap: 8px; border-top: .5px solid var(--tg-separator); position: relative; }
+.bottom[hidden] { display: none !important; }
+.mb { flex: 1; height: 50px; border: 0; border-radius: 12px; background: var(--tg-button); color: var(--tg-button-text); font-size: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; transition: filter .15s, opacity .15s; }
+.mb:hover { filter: brightness(1.06); }
+.mb:disabled { opacity: .45; cursor: default; filter: none; }
+.mb.danger { background: var(--tg-destructive); }
+.sb2 { flex: 1; height: 50px; border: 0; border-radius: 12px; background: var(--tg-fill); color: var(--tg-button); font-size: 16px; font-weight: 600; }
+.homebar { position: absolute; left: 50%; bottom: 8px; width: 134px; height: 5px; margin-left: -67px; border-radius: 3px; background: var(--tg-text); opacity: .85; z-index: 30; pointer-events: none; }
+
+/* ---------- mini app components ---------- */
+.group-title { margin: 0 30px 7px; font-size: 13px; text-transform: uppercase; letter-spacing: .02em; color: var(--tg-section-header); display: flex; justify-content: space-between; gap: 8px; }
+.group-title a, .group-title button { text-transform: none; letter-spacing: 0; color: var(--tg-link); background: none; border: 0; padding: 0; font-size: 13px; }
+.group { margin: 0 14px 22px; background: var(--tg-section-bg); border-radius: 12px; overflow: hidden; }
+.group-note { margin: -14px 30px 22px; font-size: 13px; color: var(--tg-hint); }
+.row { width: 100%; display: flex; align-items: center; gap: 12px; min-height: 50px; padding: 8px 14px; border: 0; background: transparent; text-align: left; position: relative; color: var(--tg-text); }
+button.row:active, .tap:active { transform: scale(.985); }
+.row + .row::before { content: ""; position: absolute; top: 0; right: 0; left: 58px; border-top: .5px solid var(--tg-separator); }
+.row.wide + .row.wide::before { left: 70px; }
+.row .rt { flex: 1; min-width: 0; }
+.row .rt b { display: block; font-weight: 400; font-size: 16px; overflow-wrap: anywhere; }
+.row .rt small { display: block; font-size: 13px; color: var(--tg-hint); margin-top: 1px; font-variant-numeric: tabular-nums; }
+.row .rv { font-size: 15px; color: var(--tg-hint); white-space: nowrap; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 4px; }
+.row .rv .icon { width: 16px; height: 16px; opacity: .6; }
+.row.danger .rt b { color: var(--tg-destructive); }
+.tile { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #fff; flex-shrink: 0; }
+.tile .icon { width: 18px; height: 18px; stroke-width: 2; }
+.ftile { width: 44px; height: 44px; border-radius: 11px; display: grid; place-items: center; flex-shrink: 0; position: relative; overflow: hidden; color: var(--k); background: color-mix(in srgb, var(--k) 14%, transparent); }
+.ftile .icon { width: 22px; height: 22px; }
+.ftile em { position: absolute; bottom: 3px; left: 0; right: 0; text-align: center; font: 700 8px/1 var(--font); font-style: normal; letter-spacing: .03em; }
+.ftile.has-ext .icon { margin-top: -8px; }
+.ftile.photo { background-size: cover; }
+.ftile .dur { position: absolute; right: 3px; bottom: 3px; font: 600 9px/1 var(--font); color: #fff; background: rgba(0,0,0,.45); padding: 2px 3px; border-radius: 4px; }
+.badge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--tg-button); color: var(--tg-button-text); font-size: 12px; font-weight: 600; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; }
+.mini { display: inline-flex; align-items: center; gap: 3px; color: var(--tg-accent); }
+.mini .icon { width: 13px; height: 13px; stroke-width: 2.2; }
+.star { color: var(--c-backup); }
+.chev { width: 16px !important; height: 16px !important; color: var(--tg-hint); opacity: .7; }
+
+.chips { display: flex; gap: 8px; overflow-x: auto; padding: 0 14px 14px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex-shrink: 0; height: 32px; padding: 0 12px; border-radius: 16px; border: 0; background: var(--tg-section-bg); color: var(--tg-text); font-size: 14px; display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.chip small { color: var(--tg-hint); font-size: 13px; }
+.chip[aria-pressed="true"] { background: var(--tg-button); color: var(--tg-button-text); }
+.chip[aria-pressed="true"] small { color: inherit; opacity: .8; }
+.chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--k); }
+
+.seg { margin: 0 14px 14px; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 2px; border-radius: 9px; background: var(--tg-fill); }
+.seg button { border: 0; background: transparent; height: 30px; border-radius: 7px; font-size: 14px; color: var(--tg-text); }
+.seg button[aria-pressed="true"] { background: var(--tg-section-bg); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+
+.search { margin: 0 14px 12px; position: relative; }
+.search .icon { position: absolute; left: 10px; top: 9px; width: 18px; height: 18px; color: var(--tg-hint); }
+.search input { width: 100%; height: 36px; border: 0; border-radius: 10px; background: var(--tg-fill); padding: 0 12px 0 36px; font-size: 16px; }
+.search input::placeholder { color: var(--tg-hint); }
+.toolbar { display: flex; justify-content: space-between; align-items: center; margin: 0 14px 10px; gap: 8px; }
+.tbtn { border: 0; background: transparent; color: var(--tg-link); display: inline-flex; align-items: center; gap: 5px; font-size: 14px; padding: 6px 2px; min-height: 36px; }
+.tbtn .icon { width: 17px; height: 17px; }
+.iconbtns { display: flex; gap: 4px; }
+.ib { width: 36px; height: 36px; border-radius: 9px; border: 0; background: transparent; color: var(--tg-hint); display: grid; place-items: center; }
+.ib[aria-pressed="true"] { background: var(--tg-section-bg); color: var(--tg-link); }
+.ib .icon { width: 19px; height: 19px; }
+
+.grid { margin: 0 14px 22px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; border-radius: 12px; overflow: hidden; }
+.cell { aspect-ratio: 1; max-width: 100%; border: 0; padding: 0; position: relative; background: var(--tg-section-bg); display: grid; place-items: center; color: var(--k); overflow: hidden; }
+.cell .icon { width: 28px; height: 28px; }
+.cell .cname { position: absolute; left: 6px; right: 6px; bottom: 6px; font-size: 10.5px; color: var(--tg-hint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+.cell .dur { position: absolute; right: 5px; bottom: 5px; font: 600 11px/1 var(--font); color: #fff; background: rgba(0,0,0,.45); padding: 3px 5px; border-radius: 5px; }
+.check { position: absolute; top: 50%; margin-top: -11px; right: 14px; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--tg-hint); display: grid; place-items: center; }
+.check.on { background: var(--tg-button); border-color: var(--tg-button); color: var(--tg-button-text); }
+.check .icon { width: 14px; height: 14px; stroke-width: 3; }
+.row.sel { padding-right: 46px; }
+
+/* photo placeholders (abstract "photos") */
+.ph1 { background: linear-gradient(160deg, #ffcf8b 0%, #f2766b 45%, #5b3f86 100%); }
+.ph2 { background: linear-gradient(200deg, #9be7f0 0%, #3a9bd6 50%, #1d3e74 100%); }
+.ph3 { background: radial-gradient(circle at 30% 30%, #fff3b0 0 12%, transparent 13%), linear-gradient(180deg, #8fd3fe 0%, #e0f4ff 55%, #6bbf59 56%, #2f7d32 100%); }
+.ph4 { background: linear-gradient(180deg, #2b5876 0%, #4e4376 100%); }
+.ph5 { background: linear-gradient(135deg, #f6d365 0%, #fda085 100%); }
+.ph6 { background: radial-gradient(circle at 70% 25%, #fdf6e3 0 9%, transparent 10%), linear-gradient(180deg, #0f2027 0%, #203a43 50%, #2c5364 100%); }
+.ph7 { background: linear-gradient(120deg, #84fab0 0%, #8fd3f4 100%); }
+.ph8 { background: linear-gradient(200deg, #ff9a9e 0%, #fecfef 60%, #a18cd1 100%); }
+
+/* home */
+.hello { display: flex; align-items: center; gap: 12px; margin: 2px 16px 16px; }
+.avatar { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 600; font-size: 18px; background: linear-gradient(135deg, #f0a54d, #e2476a); flex-shrink: 0; }
+.hello b { display: block; font-size: 20px; letter-spacing: -.01em; }
+.hello small { color: var(--tg-hint); font-size: 13px; }
+.storage { display: grid; grid-template-columns: 100px 1fr; gap: 16px; align-items: center; padding: 16px; }
+.ring { width: 100px; height: 100px; position: relative; }
+.ring svg { width: 100px; height: 100px; transform: rotate(-90deg); }
+.ring .rc { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; line-height: 1.1; }
+.ring .rc b { font-size: 19px; font-variant-numeric: tabular-nums; }
+.ring .rc small { font-size: 11px; color: var(--tg-hint); }
+.stor-list { display: grid; gap: 6px; font-size: 13.5px; min-width: 0; }
+.stor-list div { display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
+.stor-list span { color: var(--tg-hint); display: flex; align-items: center; gap: 6px; }
+.stor-list i { width: 8px; height: 8px; border-radius: 2px; background: var(--k); display: inline-block; }
+.stor-foot { display: flex; justify-content: space-between; padding: 10px 16px; border-top: .5px solid var(--tg-separator); font-size: 13px; color: var(--tg-hint); font-variant-numeric: tabular-nums; }
+.quick { margin: 0 14px 22px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.qa { border: 0; background: var(--tg-section-bg); border-radius: 12px; padding: 12px 4px 10px; display: grid; justify-items: center; gap: 6px; font-size: 12px; color: var(--tg-text); }
+.qa .icon { color: var(--tg-button); width: 24px; height: 24px; }
+.recent { display: flex; gap: 10px; overflow-x: auto; padding: 0 14px 4px; margin-bottom: 22px; scrollbar-width: none; }
+.recent::-webkit-scrollbar { display: none; }
+.rcard { flex-shrink: 0; width: 104px; border: 0; padding: 0; background: transparent; text-align: left; color: var(--tg-text); }
+.rcard .rimg { width: 104px; height: 104px; border-radius: 12px; display: grid; place-items: center; color: var(--k); background-color: var(--tg-section-bg); position: relative; overflow: hidden; }
+.rcard .rimg .icon { width: 30px; height: 30px; }
+.rcard b { display: block; font-size: 12.5px; font-weight: 500; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rcard small { font-size: 11.5px; color: var(--tg-hint); }
+.upill { margin: 0 14px 18px; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 12px; border: 0; width: calc(100% - 28px); background: var(--tg-section-bg); text-align: left; color: var(--tg-text); }
+.upill .rt { flex: 1; min-width: 0; font-size: 14px; }
+.upill small { display: block; color: var(--tg-hint); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.bar { height: 4px; border-radius: 2px; background: var(--tg-fill); overflow: hidden; margin-top: 6px; }
+.bar > i { display: block; height: 100%; background: var(--tg-button); border-radius: 2px; transition: width .4s ease; }
+.bar.err > i { background: var(--tg-destructive); }
+.bar.ok > i { background: var(--c-ok); }
+.spin { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--tg-fill); border-top-color: var(--tg-button); animation: spin 1s linear infinite; flex-shrink: 0; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* sheets & popups */
+.layer { position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; justify-content: flex-end; background: var(--tg-overlay); animation: fade .2s ease; }
+.sheet { background: var(--tg-secondary-bg); border-radius: 14px 14px 0 0; max-height: 86%; display: flex; flex-direction: column; animation: up .26s cubic-bezier(.2,.8,.2,1); }
+.sheet .grab { width: 36px; height: 5px; border-radius: 3px; background: var(--tg-hint); opacity: .45; margin: 7px auto 4px; flex-shrink: 0; }
+.sheet .sc { overflow-y: auto; padding: 6px 0 12px; }
+.sheet .bottom { border-top: .5px solid var(--tg-separator); }
+@keyframes up { from { transform: translateY(100%); } }
+@keyframes fade { from { opacity: 0; } }
+.fhead { display: grid; grid-template-columns: 64px 1fr; gap: 14px; align-items: center; margin: 4px 16px 16px; }
+.fhead .ftile { width: 64px; height: 64px; border-radius: 14px; }
+.fhead .ftile .icon { width: 30px; height: 30px; }
+.fhead b { display: block; font-size: 17px; overflow-wrap: anywhere; line-height: 1.25; }
+.fhead small { font-size: 13px; color: var(--tg-hint); font-variant-numeric: tabular-nums; }
+.actions { margin: 0 14px 18px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.act { border: 0; background: var(--tg-section-bg); border-radius: 12px; padding: 11px 2px 9px; display: grid; justify-items: center; gap: 5px; font-size: 11.5px; color: var(--tg-text); line-height: 1.2; text-align: center; }
+.act .icon { color: var(--tg-button); width: 22px; height: 22px; }
+.act.on .icon { color: var(--c-backup); fill: var(--c-backup); }
+.popup { position: absolute; inset: 0; z-index: 25; display: grid; place-items: center; background: var(--tg-overlay); animation: fade .15s ease; padding: 0 34px; }
+.pop { width: 100%; background: var(--tg-section-bg); border-radius: 14px; overflow: hidden; text-align: center; animation: pop .18s ease; }
+@keyframes pop { from { transform: scale(1.08); opacity: 0; } }
+.pop .pb { padding: 18px 16px 14px; }
+.pop .pb b { display: block; font-size: 17px; margin-bottom: 4px; }
+.pop .pb p { margin: 0; font-size: 13.5px; color: var(--tg-hint); }
+.pop .pbtns { display: grid; grid-auto-flow: column; border-top: .5px solid var(--tg-separator); }
+.pop .pbtns button { border: 0; background: transparent; height: 46px; color: var(--tg-link); font-size: 16px; }
+.pop .pbtns button + button { border-left: .5px solid var(--tg-separator); }
+.pop .pbtns button.destructive { color: var(--tg-destructive); font-weight: 600; }
+.toast { position: absolute; left: 14px; right: 14px; bottom: 96px; z-index: 28; display: flex; gap: 10px; align-items: center; padding: 11px 14px; border-radius: 12px; background: var(--tg-toast); color: var(--tg-toast-text); font-size: 14px; animation: fade .2s ease; pointer-events: none; }
+.toast .icon { width: 20px; height: 20px; color: var(--c-ok); }
+
+/* toggles, steppers, inputs */
+.switch { width: 51px; height: 31px; border-radius: 16px; background: var(--tg-fill); position: relative; flex-shrink: 0; transition: background .2s; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,.2); transition: transform .2s; }
+.switch.on { background: var(--c-ok); }
+.switch.on::after { transform: translateX(20px); }
+.stepper { display: inline-flex; align-items: center; border-radius: 9px; background: var(--tg-fill); }
+.stepper button { width: 36px; height: 32px; border: 0; background: transparent; color: var(--tg-text); display: grid; place-items: center; }
+.stepper button .icon { width: 16px; height: 16px; }
+.stepper span { min-width: 30px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+.field { display: block; width: 100%; border: 0; background: transparent; padding: 14px; font-size: 16px; color: var(--tg-text); }
+.field::placeholder { color: var(--tg-hint); }
+.field + .field { border-top: .5px solid var(--tg-separator); }
+.linkbox { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+.linkbox code { flex: 1; min-width: 0; font: 13.5px/1.3 var(--mono); color: var(--tg-link); overflow-wrap: anywhere; }
+.qr { display: grid; justify-items: center; gap: 8px; padding: 16px; border-top: .5px solid var(--tg-separator); }
+.qr canvas { width: 148px; height: 148px; border-radius: 8px; image-rendering: pixelated; }
+.qr small { color: var(--tg-hint); font-size: 12px; }
+.member { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 600; font-size: 14px; flex-shrink: 0; }
+.status-pill { font-size: 12px; padding: 3px 8px; border-radius: 10px; background: color-mix(in srgb, var(--k) 15%, transparent); color: var(--k); white-space: nowrap; font-weight: 600; }
+.chatcard { margin: 0 14px 22px; padding: 16px; border-radius: 12px; background: var(--chat-bg); }
+.mini-bubble { max-width: 86%; background: var(--bubble-in); border-radius: 14px 14px 14px 4px; padding: 9px 11px; font-size: 14px; color: var(--tg-text); }
+.mini-bubble small { display: block; color: var(--tg-hint); font-size: 12.5px; }
+.mini-kb { max-width: 86%; margin-top: 4px; border-radius: 10px; background: var(--kb-bg); color: var(--kb-text); text-align: center; padding: 9px; font-size: 14px; font-weight: 500; }
+
+/* viewer */
+.viewer { position: absolute; inset: 0; z-index: 15; background: #000; color: #fff; display: flex; flex-direction: column; }
+.viewer .vtop { padding: 10px 14px 10px; display: flex; justify-content: space-between; align-items: center; background: linear-gradient(rgba(0,0,0,.55), transparent); position: absolute; top: 0; left: 0; right: 0; z-index: 2; }
+.vbtn { width: 38px; height: 38px; border-radius: 50%; border: 0; background: rgba(255,255,255,.14); color: #fff; display: grid; place-items: center; }
+.vbtn .icon { width: 20px; height: 20px; }
+.vtop .vt { text-align: center; font-size: 14px; }
+.vtop .vt small { display: block; color: rgba(255,255,255,.65); font-size: 12px; font-variant-numeric: tabular-nums; }
+.landscape { flex: 1; position: relative; overflow: hidden; background: linear-gradient(180deg, #2a1f4f 0%, #8b3f6b 38%, #f28a5b 62%, #ffd38a 72%); }
+.landscape .sun { position: absolute; left: 50%; top: 58%; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; background: radial-gradient(circle, #fff1c9 0 45%, rgba(255,214,140,.0) 70%); }
+.landscape .m1 { position: absolute; inset: 0; background: #3b2350; clip-path: polygon(0 74%, 14% 60%, 26% 68%, 42% 52%, 58% 66%, 70% 58%, 86% 70%, 100% 62%, 100% 100%, 0 100%); }
+.landscape .m2 { position: absolute; inset: 0; background: #22152f; clip-path: polygon(0 84%, 20% 72%, 36% 80%, 52% 70%, 70% 82%, 88% 74%, 100% 80%, 100% 100%, 0 100%); }
+.landscape .lake { position: absolute; left: 0; right: 0; bottom: 0; height: 9%; background: linear-gradient(180deg, rgba(255,190,130,.35), rgba(30,20,50,.9)); }
+.viewer .vbottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 18px 34px; display: flex; justify-content: space-around; background: linear-gradient(transparent, rgba(0,0,0,.6)); }
+.viewer .vbottom button { border: 0; background: transparent; color: #fff; display: grid; justify-items: center; gap: 4px; font-size: 11px; }
+.viewer .vinfo { position: absolute; left: 14px; right: 14px; bottom: 92px; font-size: 12.5px; color: rgba(255,255,255,.8); text-align: center; font-variant-numeric: tabular-nums; }
+.dots { position: absolute; top: 66px; left: 0; right: 0; display: flex; justify-content: center; gap: 5px; }
+.dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.4); }
+.dots i.on { background: #fff; }
+
+.screen.fs .statusbar { background: #000; color: #fff; }
+.screen.fs .content { padding: 0; }
+
+/* editor */
+.ed-bar { display: flex; gap: 2px; padding: 6px 10px; background: var(--tg-section-bg); border-bottom: .5px solid var(--tg-separator); overflow-x: auto; scrollbar-width: none; }
+.ed-bar button { border: 0; background: transparent; color: var(--tg-link); height: 34px; padding: 0 9px; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; font-size: 13.5px; white-space: nowrap; }
+.ed-bar button[aria-pressed="true"] { background: var(--tg-fill); }
+.ed-bar .icon { width: 17px; height: 17px; }
+.ed { display: grid; grid-template-columns: 38px 1fr; background: var(--tg-section-bg); flex: 1; min-height: 0; }
+.gutter { font: 12.5px/20px var(--mono); color: var(--tg-hint); text-align: right; padding: 10px 8px 10px 0; background: var(--tg-secondary-bg); overflow: hidden; user-select: none; }
+.ed textarea { border: 0; resize: none; outline: none; background: transparent; font: 12.5px/20px var(--mono); padding: 10px 10px 10px 8px; white-space: pre; overflow: auto; color: var(--tg-text); tab-size: 2; }
+.ed-status { display: flex; justify-content: space-between; gap: 8px; padding: 6px 12px; font: 11.5px/1.3 var(--mono); color: var(--tg-hint); background: var(--tg-section-bg); border-top: .5px solid var(--tg-separator); }
+.ed-banner { display: flex; gap: 8px; align-items: center; padding: 8px 12px; font-size: 13px; background: color-mix(in srgb, var(--c-ok) 14%, var(--tg-section-bg)); color: var(--tg-text); }
+.ed-banner .icon { width: 16px; height: 16px; color: var(--c-ok); }
+.content.flush { padding: 0; display: flex; flex-direction: column; }
+
+/* chat */
+.chat-head { flex-shrink: 0; height: 54px; display: grid; grid-template-columns: 60px 1fr 60px; align-items: center; padding: 0 8px; background: var(--tg-header-bg); border-bottom: .5px solid var(--tg-separator); }
+.chat-head .back { color: var(--tg-link); display: flex; align-items: center; font-size: 16px; }
+.chat-head .back .icon { width: 22px; height: 22px; stroke-width: 2.2; }
+.chat-head .ct { text-align: center; }
+.chat-head .ct b { display: block; font-size: 16px; }
+.chat-head .ct span { font-size: 12.5px; color: var(--tg-hint); }
+.chat-head .av { justify-self: end; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, #43c2b2, #087f75); }
+.chat-head .av .icon { width: 20px; height: 20px; }
+.chat { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 10px; display: flex; flex-direction: column; gap: 6px; background-color: var(--chat-bg); background-image: radial-gradient(var(--chat-dot) 1.2px, transparent 1.4px); background-size: 18px 18px; }
+.day { align-self: center; font-size: 12.5px; padding: 3px 10px; border-radius: 12px; background: var(--kb-bg); color: var(--kb-text); margin: 4px 0; }
+.msg { max-width: 82%; padding: 7px 10px 6px; border-radius: 16px; font-size: 15px; line-height: 1.32; position: relative; color: var(--tg-text); }
+.msg.in { align-self: flex-start; background: var(--bubble-in); border-bottom-left-radius: 5px; }
+.msg.out { align-self: flex-end; background: var(--bubble-out); border-bottom-right-radius: 5px; }
+.msg .meta { float: right; margin: 6px 0 -4px 10px; font-size: 11.5px; color: var(--tg-hint); font-variant-numeric: tabular-nums; }
+.msg.out .meta { color: var(--bubble-meta); }
+.docmsg { display: flex; gap: 10px; align-items: center; }
+.docmsg .dic { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--c-prog); color: #fff; flex-shrink: 0; }
+.docmsg .dic .icon { width: 22px; height: 22px; }
+.docmsg b { display: block; font-weight: 500; font-size: 15px; }
+.docmsg small { font-size: 13px; color: var(--bubble-meta); }
+.kb { align-self: flex-start; width: 82%; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: -2px; }
+.kb button { border: 0; border-radius: 10px; min-height: 38px; background: var(--kb-bg); color: var(--kb-text); font-size: 14px; font-weight: 500; padding: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.kb button.full { grid-column: 1 / -1; }
+.kb button .icon { width: 16px; height: 16px; }
+.composer { flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 8px 10px 30px; background: var(--tg-header-bg); border-top: .5px solid var(--tg-separator); }
+.menubtn { height: 34px; padding: 0 12px; border-radius: 17px; border: 0; background: var(--tg-button); color: var(--tg-button-text); font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.menubtn .icon { width: 17px; height: 17px; }
+.composer .inp { flex: 1; min-width: 0; height: 34px; border-radius: 17px; border: .5px solid var(--tg-separator); background: var(--tg-bg); color: var(--tg-hint); display: flex; align-items: center; padding: 0 12px; font-size: 15px; }
+.composer .ci { color: var(--tg-hint); display: grid; place-items: center; }
+
+.empty-note { text-align: center; color: var(--tg-hint); font-size: 14px; padding: 24px; }
+.link-hero { display: grid; justify-items: center; gap: 8px; text-align: center; margin: 8px 24px 22px; }
+.link-hero .avatar { width: 72px; height: 72px; font-size: 28px; }
+.link-hero b { font-size: 20px; }
+.link-hero p { margin: 0; color: var(--tg-hint); font-size: 14px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; padding: 12px 14px; font-size: 14px; }
+.kv dt { color: var(--tg-hint); }
+.kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.diskbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--tg-fill); margin: 0 14px 12px; }
+.diskbar i { display: block; height: 100%; }
+.audit { list-style: none; margin: 0; padding: 4px 0; }
+.audit li { display: grid; grid-template-columns: 44px 1fr; gap: 10px; padding: 8px 14px; font-size: 13.5px; }
+.audit li + li { border-top: .5px solid var(--tg-separator); }
+.audit time { color: var(--tg-hint); font-variant-numeric: tabular-nums; }
+
+/* folders */
+.ftile.folder .icon, .cell.folder .icon { fill: color-mix(in srgb, var(--k) 30%, transparent); }
+.crumbs { margin: 0 14px 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 14px; color: var(--tg-hint); }
+.crumbs button { border: 0; background: none; padding: 4px 0; color: var(--tg-link); font-size: 14px; min-height: 32px; }
+.crumbs b { color: var(--tg-text); font-weight: 600; overflow-wrap: anywhere; }
+
+/* slash command suggestions */
+.cmds { flex-shrink: 0; background: var(--tg-header-bg); border-top: .5px solid var(--tg-separator); max-height: 240px; overflow-y: auto; }
+.cmds button { width: 100%; display: flex; gap: 10px; align-items: baseline; padding: 9px 14px; border: 0; background: transparent; text-align: left; color: var(--tg-text); font-size: 15px; }
+.cmds button + button, .cmds p { border-top: .5px solid var(--tg-separator); }
+.cmds b { font-weight: 600; color: var(--tg-link); white-space: nowrap; }
+.cmds span { color: var(--tg-hint); font-size: 13.5px; }
+.cmds p { margin: 0; padding: 8px 14px; font-size: 12.5px; color: var(--tg-hint); }
+
+/* public link page: the recipient's ordinary browser, product brand instead of Telegram theme */
+.screen.browser .statusbar { background: var(--sh-surface); color: var(--sh-text); }
+.br-bar { flex-shrink: 0; padding: 4px 12px 10px; background: var(--sh-surface); border-bottom: 1px solid var(--sh-line); display: flex; gap: 8px; align-items: center; }
+.br-url { flex: 1; min-width: 0; height: 36px; border-radius: 10px; background: var(--sh-code); color: var(--sh-text); display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 14px; white-space: nowrap; overflow: hidden; }
+.br-url .icon { width: 14px; height: 14px; color: var(--sh-brand); }
+.br-btn { width: 36px; height: 36px; border: 0; border-radius: 10px; background: transparent; color: var(--sh-muted); display: grid; place-items: center; }
+.br-btn .icon { width: 20px; height: 20px; }
+.content.pubc { background: var(--sh-bg); color: var(--sh-text); padding: 16px 14px 34px; }
+.pub { display: grid; gap: 14px; }
+.pub-brand { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.pub-logo { width: 28px; height: 28px; border-radius: 8px; background: var(--sh-brand); color: var(--sh-surface); display: grid; place-items: center; }
+.pub-logo .icon { width: 16px; height: 16px; }
+.pub-host { margin-left: auto; font: 12px/1 var(--mono); color: var(--sh-muted); }
+.pub-card { background: var(--sh-surface); border: 1px solid var(--sh-line); border-radius: 16px; padding: 18px; display: grid; gap: 14px; }
+.pub-card p { margin: 0; }
+.pub-head { display: grid; grid-template-columns: 52px 1fr; gap: 12px; align-items: center; }
+.pub-head .ftile { width: 52px; height: 52px; border-radius: 13px; }
+.pub-who { font-size: 13px; color: var(--sh-muted); }
+.pub-card h2 { margin: 2px 0; font-size: 20px; line-height: 1.2; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.pub-card small { color: var(--sh-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.pub-btn { min-height: 46px; border: 0; border-radius: 11px; background: var(--sh-brand); color: var(--sh-surface); font-weight: 600; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; }
+.pub-btn .icon { width: 18px; height: 18px; }
+.pub-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.pub-list li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--sh-line); min-width: 0; }
+.pub-list .ftile { width: 36px; height: 36px; border-radius: 9px; }
+.pub-list .ftile .icon { width: 18px; height: 18px; }
+.pub-list .nm { flex: 1; min-width: 0; font-size: 14px; overflow-wrap: anywhere; border: 0; background: none; padding: 0; text-align: left; color: var(--sh-text); }
+.pub-list .nm small { display: block; font-size: 12px; }
+.pub-dl { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--sh-line); background: transparent; color: var(--sh-brand); display: grid; place-items: center; flex-shrink: 0; }
+.pub-dl .icon { width: 18px; height: 18px; }
+.pub-foot { font-size: 13px; color: var(--sh-muted); }
+.pub-legal { margin: 0; text-align: center; font-size: 12px; color: var(--sh-muted); }
+.pub-ic { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--sh-brand-soft); color: var(--sh-brand); }
+.pub-label { font-size: 13px; color: var(--sh-muted); margin-bottom: -8px; }
+.pub-input { width: 100%; height: 44px; border-radius: 10px; border: 1px solid var(--sh-line); background: var(--sh-bg); color: var(--sh-text); padding: 0 12px; font-size: 16px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 1139px) {
+  .stage { grid-template-columns: 404px minmax(0, 1fr); }
+  .nav { position: static; grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+  .nav h2 { width: 100%; margin-left: 0; }
+  .nav button { background: var(--sh-surface); border: 1px solid var(--sh-line); }
+  .nav button[aria-current="true"] { box-shadow: none; border-color: var(--sh-brand); }
+}
+@media (max-width: 799px) {
+  .stage { grid-template-columns: minmax(0, 1fr); }
+  .nav { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+  .nav h2 { display: none; }
+  .nav button { flex-shrink: 0; }
+}
+@media (max-width: 440px) {
+  .phone { width: 100%; height: 760px; border-radius: 44px; padding: 6px; }
+  .screen { border-radius: 38px; }
+  .statusbar { padding-inline: 22px; }
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></symbol>
+    <symbol id="i-move" viewBox="0 0 24 24"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1"/><path d="M2 13h10"/><path d="m9 16 3-3-3-3"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></symbol>
+    <symbol id="i-file-text" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></symbol>
+    <symbol id="i-film" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="2.2"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></symbol>
+    <symbol id="i-package" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5" rx="1"/><line x1="10" y1="12" x2="14" y2="12"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+    <symbol id="i-check-circle" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></symbol>
+    <symbol id="i-user-plus" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="4" height="4"/><rect x="13" y="13" width="4" height="4"/><path d="M13 7h4v4M7 13v4h4"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></symbol>
+    <symbol id="i-clip" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></symbol>
+    <symbol id="i-sort" viewBox="0 0 24 24"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-wrap" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><polyline points="16 16 14 18 16 20"/><line x1="3" y1="18" x2="10" y2="18"/></symbol>
+    <symbol id="i-type" viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 15 14"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <header class="intro">
+    <p class="eyebrow">Макет · rust-file-manager × TelegramOnly</p>
+    <h1>Мини-приложение «Файлы» в Telegram</h1>
+    <p class="lead">Интерактивный макет к плану <code>TELEGRAM_MINIAPP_PLAN.md</code>. Экраны работают: нажимайте файлы, чипы, переключатели и нижнюю кнопку. Справа — что делает экран, какие методы Telegram WebApp он вызывает и какие эндпоинты rust-file-manager за ним стоят. Данные — примеры.</p>
+    <div class="controls">
+      <span class="label" id="themeLabel">Тема Telegram в макете</span>
+      <div class="pills" role="group" aria-labelledby="themeLabel">
+        <button type="button" data-tgtheme="auto" aria-pressed="true">Как у страницы</button>
+        <button type="button" data-tgtheme="light" aria-pressed="false">Светлая</button>
+        <button type="button" data-tgtheme="dark" aria-pressed="false">Тёмная</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="stage">
+    <nav class="nav" id="nav" aria-label="Экраны макета"><h2>Экраны</h2></nav>
+
+    <div class="phone-wrap">
+      <div class="phone" id="phone" data-tg="auto">
+        <div class="screen" id="screen">
+          <div class="statusbar"><span>9:41</span><div class="island"></div>
+            <span class="sb-icons" aria-hidden="true">
+              <svg viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5" width="3" height="7" rx="1" fill="currentColor"/><rect x="10" y="2.5" width="3" height="9.5" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg>
+              <svg viewBox="0 0 26 12"><rect x=".5" y=".5" width="22" height="11" rx="3" fill="none" stroke="currentColor" opacity=".5"/><rect x="2" y="2" width="16" height="8" rx="1.8" fill="currentColor"/><rect x="23.5" y="4" width="1.5" height="4" rx=".7" fill="currentColor" opacity=".5"/></svg>
+            </span>
+          </div>
+          <div id="head"></div>
+          <div class="content" id="content"></div>
+          <div class="bottom" id="bottom"></div>
+          <div id="overlay"></div>
+          <div class="homebar"></div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="notes" aria-live="polite">
+      <section class="note-card" id="noteCard"></section>
+      <section class="note-card">
+        <div class="note-sec">
+          <h4>Журнал вызовов WebApp</h4>
+          <ul class="log" id="log"></ul>
+        </div>
+      </section>
+      <section class="note-card">
+        <div class="note-sec">
+          <h4>Цвета категорий</h4>
+          <div class="legend">
+            <span><i style="background:var(--c-photo)"></i>Фото</span>
+            <span><i style="background:var(--c-doc)"></i>Документы</span>
+            <span><i style="background:var(--c-video)"></i>Видео</span>
+            <span><i style="background:var(--c-prog)"></i>Программы</span>
+            <span><i style="background:var(--c-backup)"></i>Бэкапы</span>
+            <span><i style="background:var(--c-other)"></i>Другие</span>
+          </div>
+          <p style="margin:0;font-size:13.5px;color:var(--sh-muted)">Остальные цвета берутся из <code>themeParams</code> клиента: в продукте CSS ссылается на <code>--tg-theme-*</code>, поэтому мини-приложение повторяет тему пользователя, включая собственные темы.</p>
+        </div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script>
+document.documentElement.lang = 'ru';
+const $ = (s, el = document) => el.querySelector(s);
+const ic = (name, cls = 'icon') => `<svg class="${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const CAT = {
+  'Фото': { k: 'var(--c-photo)', icon: 'image' },
+  'Документы': { k: 'var(--c-doc)', icon: 'file-text' },
+  'Видео': { k: 'var(--c-video)', icon: 'film' },
+  'Программы': { k: 'var(--c-prog)', icon: 'package' },
+  'Бэкапы': { k: 'var(--c-backup)', icon: 'archive' },
+  'Другие': { k: 'var(--c-other)', icon: 'file' },
+};
+const FILES = {
+  my: [
+    { id: 1, name: 'IMG_4821.jpg', cat: 'Фото', size: '3,2 МБ', when: '18:40', group: 'Сегодня', ph: 'ph1', meta: '4032 × 3024' },
+    { id: 2, name: 'Договор аренды 2026.pdf', cat: 'Документы', ext: 'PDF', size: '1,1 МБ', when: '14:02', group: 'Сегодня', link: true, fav: true },
+    { id: 3, name: 'docker-compose.yml', cat: 'Другие', ext: 'YML', size: '4 КБ', when: '11:15', group: 'Сегодня', text: true, icon: 'code' },
+    { id: 4, name: 'Отпуск_Сочи.mp4', cat: 'Видео', size: '486 МБ', when: 'вчера, 21:07', group: 'Вчера', ph: 'ph4', dur: '4:12' },
+    { id: 5, name: 'backup-vps-2026-10-06.tar.gz', cat: 'Бэкапы', sub: 'Серверы', ext: 'TGZ', size: '1,2 ГБ', when: 'вчера, 03:00', group: 'Вчера' },
+    { id: 6, name: 'Заметки по ремонту.md', cat: 'Документы', ext: 'MD', size: '12 КБ', when: 'вчера, 09:41', group: 'Вчера', text: true },
+    { id: 7, name: 'IMG_4799.jpg', cat: 'Фото', size: '2,8 МБ', when: 'вчера, 08:12', group: 'Вчера', ph: 'ph2' },
+    { id: 8, name: 'IMG_4790.jpg', cat: 'Фото', size: '3,0 МБ', when: '5 окт', group: 'Ранее', ph: 'ph3' },
+    { id: 9, name: 'Презентация Q3.pptx', cat: 'Документы', ext: 'PPT', size: '8,4 МБ', when: '2 окт', group: 'Ранее', link: true },
+    { id: 10, name: 'home-assistant_2026-10-01.tar', cat: 'Бэкапы', sub: 'HA', ext: 'TAR', size: '340 МБ', when: '1 окт', group: 'Ранее' },
+    { id: 11, name: 'IMG_4702.jpg', cat: 'Фото', size: '2,4 МБ', when: '1 окт', group: 'Ранее', ph: 'ph5' },
+    { id: 12, name: 'VID_4640.mp4', cat: 'Видео', size: '96 МБ', when: '28 сен', group: 'Ранее', ph: 'ph6', dur: '0:48' },
+    { id: 13, name: 'rust-file-manager_1.3.1_amd64.deb', cat: 'Программы', ext: 'DEB', size: '3,9 МБ', when: '27 сен', group: 'Ранее' },
+    { id: 14, name: 'IMG_4611.jpg', cat: 'Фото', size: '2,9 МБ', when: '26 сен', group: 'Ранее', ph: 'ph8' },
+  ],
+  shared: [
+    { id: 21, name: 'Смета ремонта.xlsx', cat: 'Документы', ext: 'XLS', size: '248 КБ', when: '17:12', group: 'Сегодня', by: 'maria' },
+    { id: 22, name: 'Свадьба_0142.jpg', cat: 'Фото', size: '5,6 МБ', when: '12:30', group: 'Сегодня', ph: 'ph7', by: 'bob' },
+    { id: 23, name: 'Свадьба_0143.jpg', cat: 'Фото', size: '5,2 МБ', when: '12:30', group: 'Сегодня', ph: 'ph8', by: 'bob' },
+    { id: 24, name: 'Инструкция VPN для родителей.pdf', cat: 'Документы', ext: 'PDF', size: '820 КБ', when: 'вчера, 19:55', group: 'Вчера', by: 'anna', link: true },
+    { id: 25, name: 'Wi-Fi на даче.txt', cat: 'Документы', ext: 'TXT', size: '1 КБ', when: '3 окт', group: 'Ранее', by: 'sergey', text: true },
+    { id: 26, name: 'Фильм про лето.mkv', cat: 'Видео', size: '2,1 ГБ', when: '30 сен', group: 'Ранее', ph: 'ph6', dur: '1:32:10', by: 'bob' },
+  ],
+};
+const FOLDERS = {
+  my: [
+    { id: 'f1', name: 'Ремонт кухни', cat: 'Документы', files: 12, size: '46 МБ' },
+    { id: 'f2', name: 'Сканы документов', cat: 'Документы', files: 8, size: '14 МБ' },
+    { id: 'f3', name: 'Сочи 2026', cat: 'Фото', files: 86, size: '312 МБ' },
+    { id: 'f4', name: 'vps-main', cat: 'Бэкапы', sub: 'Серверы', files: 14, size: '9,8 ГБ' },
+  ],
+  shared: [
+    { id: 'f5', name: 'Свадьба Бориса', cat: 'Фото', files: 401, size: '2,1 ГБ', by: 'bob' },
+    { id: 'f6', name: 'Дача', cat: 'Документы', files: 5, size: '3 МБ', by: 'sergey' },
+  ],
+};
+const KITCHEN = 'Мои файлы › Документы › Ремонт кухни';
+const FOLDER_FILES = [
+  { id: 41, name: 'Смета кухни v3.xlsx', cat: 'Документы', ext: 'XLS', size: '212 КБ', when: 'сегодня, 10:20', where: KITCHEN },
+  { id: 42, name: 'План кухни.pdf', cat: 'Документы', ext: 'PDF', size: '2,3 МБ', when: '5 окт', where: KITCHEN, link: true },
+  { id: 43, name: 'IMG_4808.jpg', cat: 'Фото', size: '3,1 МБ', when: '5 окт', ph: 'ph3', where: KITCHEN },
+  { id: 44, name: 'Договор с подрядчиком.pdf', cat: 'Документы', ext: 'PDF', size: '640 КБ', when: '1 окт', where: KITCHEN },
+  { id: 45, name: 'Чек, плитка 03.10.pdf', cat: 'Документы', ext: 'PDF', size: '180 КБ', when: '3 окт', where: KITCHEN + ' › Чеки' },
+  { id: 46, name: 'Чек, смеситель.jpg', cat: 'Фото', size: '1,2 МБ', when: '2 окт', ph: 'ph5', where: KITCHEN + ' › Чеки' },
+];
+const INSIDE = {
+  f1: { folders: [{ id: 'f1a', name: 'Чеки', cat: 'Документы', files: 9, size: '4 МБ' }], files: [41, 42, 43, 44] },
+  f1a: { folders: [], files: [45, 46] },
+};
+const CHIPS = {
+  my: [['Все', 214], ['Фото', 128], ['Документы', 46], ['Видео', 12], ['Бэкапы', 14], ['Программы', 9], ['Другие', 5]],
+  shared: [['Все', 532], ['Фото', 401], ['Документы', 77], ['Видео', 31], ['Бэкапы', 3], ['Программы', 12], ['Другие', 8]],
+};
+
+const S = {
+  stack: ['home'], zone: 'my', cat: 'Все', view: 'list', q: '', selecting: false, sel: new Set(), path: [], pubLocked: true, slash: false,
+  file: 2, shareTab: 'link', expiry: '7 дней', pass: false, viewOnly: false, notify: true, limit: 10, linkMade: false,
+  members: new Set(['bob']), linksTab: 'links', trashZone: 'my', edDirty: false, edVersion: 3, wrap: false,
+  linkMode: 'account', chatStep: 0, compress: true,
+  uploads: [
+    { id: 'u1', name: 'Отпуск_Сочи.mp4', size: '486 МБ', total: 61, done: 23, state: 'up', speed: 3.1, cat: 'Видео' },
+    { id: 'u2', name: 'IMG_4830.jpg', size: '3,4 МБ', total: 1, done: 1, state: 'ok', cat: 'Фото' },
+    { id: 'u3', name: 'IMG_4831.jpg', size: '3,1 МБ', total: 1, done: 1, state: 'ok', cat: 'Фото' },
+    { id: 'u4', name: 'Скан паспорта.pdf', size: '1,9 МБ', total: 1, done: 0, state: 'wait', cat: 'Документы' },
+    { id: 'u5', name: 'archive-2025.zip', size: '120 МБ', total: 15, done: 5, state: 'err', cat: 'Программы' },
+  ],
+  trash: {
+    my: [
+      { id: 't1', name: 'Черновик договора.docx', cat: 'Документы', ext: 'DOC', size: '84 КБ', when: 'удалён вчера', left: 29 },
+      { id: 't2', name: 'IMG_4755.jpg', cat: 'Фото', size: '2,6 МБ', when: 'удалён 2 окт', left: 25, ph: 'ph5' },
+      { id: 't3', name: 'old-backup-2026-09.tar.gz', cat: 'Бэкапы', ext: 'TGZ', size: '1,1 ГБ', when: 'удалён 14 сен', left: 7 },
+    ],
+    shared: [
+      { id: 't4', name: 'Смета v1.xlsx', cat: 'Документы', ext: 'XLS', size: '231 КБ', when: 'удалил maria, 3 окт', left: 26 },
+    ],
+  },
+};
+const allFiles = () => [...FILES.my, ...FILES.shared, ...FOLDER_FILES];
+const allFolders = () => [...FOLDERS.my, ...FOLDERS.shared, ...Object.values(INSIDE).flatMap(x => x.folders)];
+const curFolder = () => S.path[S.path.length - 1];
+function folderContents(fo) {
+  if (!INSIDE[fo.id]) INSIDE[fo.id] = { folders: [], files: fo.cat === 'Фото' ? [1, 7, 8, 11, 14] : fo.files ? [2, 6, 9] : [] };
+  const c = INSIDE[fo.id];
+  return { folders: c.folders, files: c.files.map(fileById) };
+}
+const fileById = (id) => allFiles().find(f => f.id === id);
+
+/* ---------- telegram call log ---------- */
+const LOG = [];
+function tg(call) {
+  LOG.unshift(call);
+  if (LOG.length > 8) LOG.pop();
+  $('#log').innerHTML = LOG.map(l => `<li>${esc(l)}</li>`).join('');
+}
+
+/* ---------- shared renderers ---------- */
+function ftile(f, size = '') {
+  const c = CAT[f.cat];
+  if (f.ph) {
+    return `<span class="ftile photo ${f.ph} ${size}" style="--k:${c.k}">${f.dur ? `<span class="dur">${f.dur}</span>` : ''}</span>`;
+  }
+  return `<span class="ftile ${f.ext ? 'has-ext' : ''} ${size}" style="--k:${c.k}">${ic(f.icon || c.icon)}${f.ext ? `<em>${f.ext}</em>` : ''}</span>`;
+}
+function fileRow(f) {
+  const loc = f.sub ? `Бэкапы › ${f.sub}` : f.cat;
+  const badges = `${f.link ? `<span class="mini">${ic('link')}ссылка</span>` : ''}${f.fav ? `<span class="mini star">${ic('star')}</span>` : ''}`;
+  const by = f.by ? ` · ${f.by}` : '';
+  const sel = S.selecting ? `<span class="check ${S.sel.has(f.id) ? 'on' : ''}">${S.sel.has(f.id) ? ic('check') : ''}</span>` : '';
+  return `<button class="row wide tap ${S.selecting ? 'sel' : ''}" data-act="pick" data-arg="${f.id}" type="button">
+    ${ftile(f)}
+    <span class="rt"><b>${hl(f.name)}</b><small>${f.size} · ${f.when}${S.cat === 'Все' ? ' · ' + loc : ''}${by} ${badges}</small></span>${sel}
+  </button>`;
+}
+function hl(name) {
+  if (!S.q) return esc(name);
+  const i = name.toLowerCase().indexOf(S.q.toLowerCase());
+  if (i < 0) return esc(name);
+  return esc(name.slice(0, i)) + `<mark style="background:color-mix(in srgb,var(--tg-button) 25%,transparent);color:inherit;border-radius:3px">${esc(name.slice(i, i + S.q.length))}</mark>` + esc(name.slice(i + S.q.length));
+}
+function switchEl(on) { return `<span class="switch ${on ? 'on' : ''}" role="switch" aria-checked="${on}"></span>`; }
+
+/* ---------- screens ---------- */
+const SCREENS = {
+  home: {
+    nav: 'Главная', stage: 'Этап 1', title: 'Файлы', sub: 'мини-приложение',
+    notes: {
+      title: 'Главная',
+      text: 'Сводка: чем занято место, быстрые действия и все разделы. Плашка показывает загрузку, идущую в фоне очереди. Нижняя кнопка — MainButton Telegram, а не своя.',
+      tg: ['initData → /api/v1/tg/session', 'themeParams', 'setHeaderColor', 'MainButton', 'CloudStorage: последняя зона', 'HapticFeedback'],
+      api: ['<b>POST</b> /api/v1/tg/session {init_data}', '<b>GET</b> /api/v1/overview'],
+    },
+    main: () => ({ text: 'Загрузить файлы', on: () => go('uploads') }),
+    render() {
+      const up = S.uploads.find(u => u.state === 'up');
+      const err = S.uploads.find(u => u.state === 'err');
+      const waiting = S.uploads.filter(u => u.state === 'wait').length;
+      const pct = up ? Math.round(up.done / up.total * 100) : 100;
+      const chev = ic('right', 'icon chev');
+      const pill = up
+        ? `<button class="upill tap" type="button" data-act="go" data-arg="uploads"><span class="spin"></span><span class="rt">Загружается ${esc(up.name)}<small>${pct} %${waiting ? ` · ещё ${waiting} в очереди` : ''}</small><span class="bar"><i style="width:${pct}%"></i></span></span>${chev}</button>`
+        : err
+          ? `<button class="upill tap" type="button" data-act="go" data-arg="uploads"><span class="tile" style="background:var(--tg-destructive)">${ic('alert')}</span><span class="rt">Загрузка прервалась: ${esc(err.name)}<small>Продолжится с ${Math.round(err.done / err.total * 100)} %, а не с нуля</small></span>${chev}</button>`
+          : `<button class="upill tap" type="button" data-act="go" data-arg="uploads"><span class="tile" style="background:var(--c-ok)">${ic('check')}</span><span class="rt">Все загрузки завершены<small>${S.uploads.length} файлов</small></span>${chev}</button>`;
+      const segs = [['Фото', 2.1, 'var(--c-photo)'], ['Видео', 1.4, 'var(--c-video)'], ['Бэкапы', .61, 'var(--c-backup)'], ['Документы', .38, 'var(--c-doc)'], ['Другие', .11, 'var(--c-other)']];
+      const total = 4.6, C = 2 * Math.PI * 40, quota = 10;
+      let off = 0;
+      const arcs = segs.map(([, v, k]) => {
+        const len = v / quota * C;
+        const a = `<circle cx="50" cy="50" r="40" fill="none" stroke="${k}" stroke-width="10" stroke-dasharray="${Math.max(len - 2, 1)} ${C}" stroke-dashoffset="${-off}" stroke-linecap="butt"/>`;
+        off += len; return a;
+      }).join('');
+      const recent = [FILES.my[0], FILES.my[1], FILES.my[2], FILES.my[3], FILES.my[6]].map(f => {
+        const c = CAT[f.cat];
+        return `<button class="rcard tap" type="button" data-act="open" data-arg="${f.id}"><span class="rimg ${f.ph || ''}" style="--k:${c.k}">${f.ph ? (f.dur ? `<span class="dur" style="position:absolute;right:5px;bottom:5px;font:600 11px/1 var(--font);color:#fff;background:rgba(0,0,0,.45);padding:3px 5px;border-radius:5px">${f.dur}</span>` : '') : ic(f.icon || c.icon)}</span><b>${esc(f.name)}</b><small>${f.when}</small></button>`;
+      }).join('');
+      return `
+      <div class="hello"><span class="avatar">А</span><div><b>Добрый вечер, Анна</b><small>anna · вход через Telegram</small></div></div>
+      ${pill}
+      <div class="group"><div class="storage">
+        <div class="ring"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="none" stroke="var(--tg-fill)" stroke-width="10"/>${arcs}</svg>
+          <div class="rc"><div><b>${total.toString().replace('.', ',')}</b><br><small>из ${quota} ГБ</small></div></div></div>
+        <div class="stor-list">${segs.map(([n, v, k]) => `<div><span><i style="--k:${k}"></i>${n}</span><b>${v < 1 ? Math.round(v * 1000) + ' МБ' : v.toString().replace('.', ',') + ' ГБ'}</b></div>`).join('')}</div>
+      </div><div class="stor-foot"><span>Мои файлы · 214</span><span>Общие · 12,4 ГБ · 532</span></div></div>
+      <div class="quick">
+        <button class="qa tap" type="button" data-act="go" data-arg="uploads">${ic('upload')}Загрузить</button>
+        <button class="qa tap" type="button" data-act="toast" data-arg="Камера: input capture=environment">${ic('camera')}Камера</button>
+        <button class="qa tap" type="button" data-act="nav" data-arg="links">${ic('inbox')}Запросить</button>
+        <button class="qa tap" type="button" data-act="qr">${ic('scan')}QR</button>
+      </div>
+      <p class="group-title"><span>Разделы</span></p>
+      <div class="group">
+        <button class="row tap" type="button" data-act="zone-go" data-arg="my"><span class="tile" style="background:var(--c-doc)">${ic('lock')}</span><span class="rt"><b>Мои файлы</b></span><span class="rv">214 · 4,6 ГБ ${ic('right', 'icon chev')}</span></button>
+        <button class="row tap" type="button" data-act="zone-go" data-arg="shared"><span class="tile" style="background:var(--c-prog)">${ic('users')}</span><span class="rt"><b>Общие файлы</b></span><span class="rv">532 · 12,4 ГБ ${ic('right', 'icon chev')}</span></button>
+        <button class="row tap" type="button" data-act="toast" data-arg="Входящие: файлы, которыми поделились участники"><span class="tile" style="background:var(--c-photo)">${ic('inbox')}</span><span class="rt"><b>Входящие</b></span><span class="rv"><span class="badge">3</span>${ic('right', 'icon chev')}</span></button>
+        <button class="row tap" type="button" data-act="toast" data-arg="Избранное: 12 файлов"><span class="tile" style="background:var(--c-backup)">${ic('star')}</span><span class="rt"><b>Избранное</b></span><span class="rv">12 ${ic('right', 'icon chev')}</span></button>
+        <button class="row tap" type="button" data-act="nav" data-arg="links"><span class="tile" style="background:var(--tg-button)">${ic('link')}</span><span class="rt"><b>Мои ссылки и запросы</b></span><span class="rv">5 активных ${ic('right', 'icon chev')}</span></button>
+        <button class="row tap" type="button" data-act="nav" data-arg="trash"><span class="tile" style="background:var(--c-other)">${ic('trash')}</span><span class="rt"><b>Корзина</b></span><span class="rv">4 · 1,1 ГБ ${ic('right', 'icon chev')}</span></button>
+        <button class="row tap" type="button" data-act="nav" data-arg="admin"><span class="tile" style="background:var(--c-video)">${ic('server')}</span><span class="rt"><b>Администрирование</b></span><span class="rv">${ic('right', 'icon chev')}</span></button>
+      </div>
+      <p class="group-title"><span>Недавние</span><button type="button" data-act="zone-go" data-arg="my">Все</button></p>
+      <div class="recent">${recent}</div>`;
+    },
+  },
+
+  browse: {
+    nav: 'Категория и папки', stage: 'Этап 1–2',
+    get title() { return S.path.length ? curFolder().name : (S.zone === 'my' ? 'Мои файлы' : 'Общие файлы'); },
+    get sub() { if (S.path.length) { const r = S.path[0]; return `${S.zone === 'my' ? 'Мои' : 'Общие'} · ${r.sub ? 'Бэкапы › ' + r.sub : r.cat}`; } return S.cat === 'Все' ? 'все категории' : S.cat; },
+    notes: {
+      title: 'Категория: список и сетка',
+      text: 'Переключатель зоны, чипы категорий, живой поиск с подсветкой, сортировка и вид «список/сетка». Папки идут первыми; внутри папки — «хлебные крошки», «Назад» поднимается на уровень выше, «+ Папка» создаёт новую. Откройте «Ремонт кухни», затем «Чеки». «Выбрать» включает массовые операции.',
+      tg: ['BackButton', 'HapticFeedback.selectionChanged', 'CloudStorage: вид и сортировка', 'MainButton (режим выбора)'],
+      api: ['<b>GET</b> /api/v1/files?scope=my&category=Документы&path=Ремонт кухни&sort=mtime', '<b>POST</b> /api/v1/folders {scope, category, path, name}', '<b>POST</b> /api/v1/files/batch {op, items, target}', '<b>POST</b> /api/v1/files/{id}/link {purpose:"inline"} — миниатюры'],
+    },
+    main: () => S.selecting
+      ? { text: S.sel.size ? `Действия с ${S.sel.size} ${plural(S.sel.size, 'файлом', 'файлами', 'файлами')}` : 'Выберите файлы', disabled: !S.sel.size, on: () => popup({ title: `${S.sel.size} ${plural(S.sel.size, 'файл', 'файла', 'файлов')}`, message: 'Скачать ZIP, переместить, поделиться или отправить в корзину.', buttons: [{ text: 'В корзину', type: 'destructive', on: () => { toast('Перемещено в корзину'); S.sel.clear(); S.selecting = false; render(); } }, { text: 'Скачать ZIP', on: () => { tg('WebApp.downloadFile({url: "/d/zip/…", file_name: "files.zip"})'); toast('Готовим архив…'); } }] }) }
+      : { text: S.path.length ? 'Загрузить в эту папку' : 'Загрузить сюда', on: () => go('uploads') },
+    render() {
+      const chips = CHIPS[S.zone].map(([n, c]) => `<button class="chip tap" type="button" data-act="cat" data-arg="${n}" aria-pressed="${S.cat === n}">${n !== 'Все' ? `<i style="--k:${CAT[n].k}"></i>` : ''}${n}<small>${c}</small></button>`).join('');
+      return `
+      <div class="seg" role="group" aria-label="Зона"><button type="button" data-act="zone" data-arg="my" aria-pressed="${S.zone === 'my'}">Мои</button><button type="button" data-act="zone" data-arg="shared" aria-pressed="${S.zone === 'shared'}">Общие</button></div>
+      <div class="search">${ic('search')}<input id="q" type="search" placeholder="${S.path.length ? 'Поиск в этой папке' : 'Поиск по имени'}" value="${esc(S.q)}" aria-label="Поиск по имени файла или папки"></div>
+      ${S.path.length ? crumbs() : `<div class="chips">${chips}</div>`}
+      <div class="toolbar"><div class="iconbtns"><button class="tbtn" type="button" data-act="toast" data-arg="Сортировка: имя · размер · дата">${ic('sort')}По дате</button><button class="tbtn" type="button" data-act="newfolder">${ic('plus')}Папка</button></div>
+        <div class="iconbtns"><button class="tbtn" type="button" data-act="select">${S.selecting ? 'Готово' : 'Выбрать'}</button>
+        <button class="ib" type="button" data-act="view" data-arg="list" aria-pressed="${S.view === 'list'}" aria-label="Списком">${ic('list')}</button>
+        <button class="ib" type="button" data-act="view" data-arg="grid" aria-pressed="${S.view === 'grid'}" aria-label="Сеткой">${ic('grid')}</button></div></div>
+      <div id="fileList">${renderList()}</div>`;
+    },
+  },
+
+  file: {
+    nav: 'Карточка файла', stage: 'Этап 1–3', base: 'browse', sheet: true, title: 'Мои файлы', sub: 'карточка файла',
+    notes: {
+      title: 'Карточка файла',
+      text: 'Нижний лист со всеми действиями над файлом. Недоступное не показывается: у PDF нет «Редактировать», у текстового файла есть. «В корзину» спрашивает подтверждение нативным showConfirm.',
+      tg: ['HapticFeedback.impactOccurred("light")', 'showConfirm', 'downloadFile', 'MainButton «Открыть»'],
+      api: ['<b>GET</b> /api/v1/files/{id}', '<b>POST</b> /api/v1/files/{id}/link {purpose:"download"}', '<b>POST</b> /api/v1/files/{id}/send-to-chat', '<b>POST</b> /api/v1/files/{id}/rename', '<b>DELETE</b> /api/v1/files/{id} → корзина'],
+    },
+    main: () => ({ text: fileById(S.file).text ? 'Открыть в редакторе' : 'Открыть', on: () => openFile(S.file) }),
+    renderSheet() {
+      const f = fileById(S.file);
+      const where = f.where || `${FILES.my.includes(f) ? 'Мои файлы' : 'Общие'} › ${f.sub ? 'Бэкапы › ' + f.sub : f.cat}`;
+      return `
+      <div class="fhead">${ftile(f)}<div><b>${esc(f.name)}</b><small>${f.size} · изменён ${f.when}</small></div></div>
+      <div class="actions">
+        <button class="act tap" type="button" data-act="dl">${ic('download')}Скачать</button>
+        <button class="act tap" type="button" data-act="tochat">${ic('send')}Мне в чат</button>
+        <button class="act tap" type="button" data-act="go" data-arg="share">${ic('share')}Поделиться</button>
+        <button class="act tap ${f.fav ? 'on' : ''}" type="button" data-act="fav">${ic('star')}${f.fav ? 'В избранном' : 'В избранное'}</button>
+        <button class="act tap" type="button" data-act="toast" data-arg="Переименование: поле в листе, проверка имени на сервере">${ic('edit')}Переимен.</button>
+        <button class="act tap" type="button" data-act="toast" data-arg="Переместить: выбор зоны и категории">${ic('move')}Переместить</button>
+        <button class="act tap" type="button" data-act="toast" data-arg="Скопировано в «Общие файлы»">${ic('copy')}В «Общие»</button>
+        <button class="act tap" type="button" data-act="toast" data-arg="Версии: 3 сохранённых">${ic('history')}Версии</button>
+      </div>
+      <div class="group"><dl class="kv"><dt>Где</dt><dd>${where}</dd><dt>Размер</dt><dd>${f.size}</dd><dt>Ссылки</dt><dd>${f.link ? '1 активная · скачано 3 из 10' : 'нет'}</dd><dt>Загрузил</dt><dd>${f.by || 'anna'} · через Telegram</dd></dl></div>
+      <div class="group"><button class="row danger tap" type="button" data-act="del"><span class="tile" style="background:var(--tg-destructive)">${ic('trash')}</span><span class="rt"><b>В корзину</b></span></button></div>`;
+    },
+  },
+
+  viewer: {
+    nav: 'Просмотр фото', stage: 'Этап 2', fullscreen: true, title: '', sub: '',
+    notes: {
+      title: 'Просмотр фото',
+      text: 'Полноэкранная галерея: свайпы между файлами категории, pinch-zoom, двойной тап. Вертикальные свайпы Telegram отключены, чтобы жест не закрывал приложение. Картинка грузится по подписанному URL, без cookie.',
+      tg: ['requestFullscreen', 'disableVerticalSwipes', 'safeAreaInset', 'downloadFile', 'BackButton'],
+      api: ['<b>POST</b> /api/v1/files/{id}/link {purpose:"inline"} → /d/&lt;payload&gt;.&lt;sig&gt;', '<b>GET</b> /d/… (Range, ETag, nosniff)'],
+    },
+    main: () => null,
+    render() {
+      return `<div class="viewer">
+        <div class="vtop"><button class="vbtn" type="button" data-act="back" aria-label="Закрыть">${ic('x')}</button><div class="vt">IMG_4821.jpg<small>3 из 128 · Фото</small></div><button class="vbtn" type="button" data-act="toast" data-arg="Инфо: 4032 × 3024 · 3,2 МБ · 7 окт, 18:40" aria-label="Сведения">${ic('info')}</button></div>
+        <div class="landscape"><div class="sun"></div><div class="m1"></div><div class="m2"></div><div class="lake"></div></div>
+        <div class="dots"><i></i><i></i><i class="on"></i><i></i><i></i></div>
+        <div class="vinfo">4032 × 3024 · 3,2 МБ · сегодня, 18:40</div>
+        <div class="vbottom">
+          <button type="button" data-act="go" data-arg="share">${ic('share')}Поделиться</button>
+          <button type="button" data-act="dl">${ic('download')}Скачать</button>
+          <button type="button" data-act="tochat">${ic('send')}В чат</button>
+          <button type="button" data-act="del">${ic('trash')}Удалить</button>
+        </div></div>`;
+    },
+  },
+
+  editor: {
+    nav: 'Редактор', stage: 'Этап 2', flush: true, title: 'docker-compose.yml', get sub() { return S.edDirty ? 'изменён' : 'Мои файлы › Другие'; },
+    notes: {
+      title: 'Редактор текста',
+      text: 'Текст и конфиги правятся прямо в Telegram. Поле работает: поменяйте строку — появится «изменён», активируется «Сохранить», закрытие спросит подтверждение. Сохранение отправляет ETag; если файл изменили с другого устройства, придёт лист конфликта.',
+      tg: ['MainButton «Сохранить»', 'SecondaryButton «Отменить правки»', 'enableClosingConfirmation', 'DeviceStorage: черновик', 'disableVerticalSwipes'],
+      api: ['<b>GET</b> /api/v1/files/{id}/content → ETag', '<b>PUT</b> /api/v1/files/{id}/content If-Match: "…" → 200 | 412', '<b>GET</b> /api/v1/files/{id}/versions'],
+    },
+    main: () => ({ text: S.edDirty ? 'Сохранить' : 'Сохранено', disabled: !S.edDirty, on: saveEditor }),
+    secondary: () => S.edDirty ? { text: 'Отменить', on: () => { S.edDirty = false; S.edText = null; tg('WebApp.disableClosingConfirmation()'); render(); } } : null,
+    render() {
+      const text = S.edText ?? EDITOR_TEXT;
+      return `
+      <div class="ed-bar">
+        <button type="button" data-act="toast" data-arg="Найти и заменить">${ic('search')}Найти</button>
+        <button type="button" data-act="wrap" aria-pressed="${S.wrap}">${ic('wrap')}Перенос</button>
+        <button type="button" data-act="toast" data-arg="Размер шрифта: 12 · 13 · 15">${ic('type')}Aa</button>
+        <button type="button" data-act="toast" data-arg="Отменить последнюю правку">${ic('undo')}</button>
+        <button type="button" data-act="toast" data-arg="Версия 3 · сегодня, 11:15 · anna">${ic('history')}Версии</button>
+      </div>
+      ${S.edSavedNote ? `<div class="ed-banner">${ic('check-circle')}Сохранено · версия ${S.edVersion}. Прошлая версия в истории.</div>` : `<div class="ed-banner">${ic('check-circle')}Черновик хранится на устройстве, пока вы не сохраните.</div>`}
+      <div class="ed"><div class="gutter" id="gutter"></div><textarea id="edArea" spellcheck="false" aria-label="Содержимое файла" style="white-space:${S.wrap ? 'pre-wrap' : 'pre'}">${esc(text)}</textarea></div>
+      <div class="ed-status"><span>YAML · UTF-8 · LF</span><span id="edPos">${text.split('\n').length} строк</span></div>`;
+    },
+  },
+
+  uploads: {
+    nav: 'Загрузки', stage: 'Этап 1', title: 'Загрузки', get sub() { const n = S.uploads.filter(u => u.state !== 'ok').length; return n ? `в очереди ${n}` : 'всё загружено'; },
+    notes: {
+      title: 'Загрузки с докачкой',
+      text: 'Файлы уходят частями по 8 МБ — это обходит лимит Cloudflare в 100 МБ и переживает обрывы мобильной сети. Если загрузка прервалась, выбор того же файла продолжит её с подтверждённого сервером места. Миниатюра фото и видео делается прямо в телефоне.',
+      tg: ['enableClosingConfirmation (пока идёт загрузка)', 'HapticFeedback.notificationOccurred', 'DeviceStorage: отпечатки незавершённых загрузок', 'MainButton «Добавить файлы»'],
+      api: ['<b>POST</b> /api/v1/uploads {scope, category?, name, size}', '<b>PUT</b> /api/v1/uploads/{id} Upload-Offset: N → {offset} | 409', '<b>POST</b> /api/v1/uploads/{id}/complete', '<b>PUT</b> /api/v1/files/{id}/thumb'],
+    },
+    main: () => ({ text: 'Добавить файлы', on: () => { tg('<input type="file" multiple> → очередь'); toast('Откроется выбор файлов телефона'); } }),
+    render() {
+      const rows = S.uploads.map(u => {
+        const c = CAT[u.cat];
+        const pct = Math.round(u.done / u.total * 100);
+        let small, bar = '', right = '';
+        if (u.state === 'up') { const left = Math.max(1, Math.round((u.total - u.done) * 8 / u.speed / 60)); small = `часть ${u.done} из ${u.total} · ${u.speed.toString().replace('.', ',')} МБ/с · ~${left} мин`; bar = `<span class="bar"><i style="width:${pct}%"></i></span>`; right = `<span class="rv">${pct} %</span>`; }
+        else if (u.state === 'ok') { small = `${u.size} · готово → ${u.cat}`; right = `<span class="rv" style="color:var(--c-ok)">${ic('check')}</span>`; }
+        else if (u.state === 'wait') { small = `${u.size} · ожидает`; right = `<span class="rv">в очереди</span>`; }
+        else { small = `Связь прервалась на ${pct} % · сервер сохранил ${u.done * 8} МБ`; bar = `<span class="bar err"><i style="width:${pct}%"></i></span>`; right = `<button class="tbtn" type="button" data-act="retry" data-arg="${u.id}">${ic('refresh')}Повторить</button>`; }
+        return `<div class="row wide"><span class="ftile ${u.cat === 'Фото' ? 'photo ph5' : ''}" style="--k:${c.k}">${u.cat === 'Фото' ? '' : ic(c.icon)}</span><span class="rt"><b>${esc(u.name)}</b><small style="${u.state === 'err' ? 'color:var(--tg-destructive)' : ''}">${small}</small>${bar}</span>${right}</div>`;
+      }).join('');
+      return `
+      <p class="group-title"><span>Куда</span></p>
+      <div class="seg" role="group" aria-label="Зона загрузки"><button type="button" aria-pressed="true">Мои</button><button type="button" data-act="toast" data-arg="Загрузка в «Общие файлы»" aria-pressed="false">Общие</button></div>
+      <div class="group">
+        <button class="row tap" type="button" data-act="toast" data-arg="Категория и папка: авто по типу · Документы › Ремонт кухни › Чеки · Бэкапы › Серверы …"><span class="tile" style="background:var(--tg-button)">${ic('folder')}</span><span class="rt"><b>Категория и папка</b></span><span class="rv">авто по типу ${ic('right', 'icon chev')}</span></button>
+        <button class="row tap" type="button" data-act="toast" data-arg="Выбор папки на компьютере: подпапки сохранятся"><span class="tile" style="background:var(--c-backup)">${ic('upload')}</span><span class="rt"><b>Загрузить папку целиком</b><small>Telegram Desktop и Web, структура сохранится</small></span>${ic('right', 'icon chev')}</button>
+        <button class="row tap" type="button" data-act="flip" data-arg="compress"><span class="tile" style="background:var(--c-photo)">${ic('image')}</span><span class="rt"><b>Сжимать фото до 2560 px</b></span>${switchEl(S.compress)}</button>
+      </div>
+      <p class="group-title"><span>Очередь</span><button type="button" data-act="toast" data-arg="Очередь очищена от готовых">Очистить готовые</button></p>
+      <div class="group">${rows}</div>
+      <p class="group-note">Можно ненадолго свернуть Telegram. Если загрузка прервётся, выберите тот же файл снова — она продолжится с места остановки.</p>`;
+    },
+  },
+
+  share: {
+    nav: 'Поделиться', stage: 'Этап 3', base: 'browse', sheet: true, title: 'Мои файлы', sub: 'поделиться',
+    notes: {
+      title: 'Поделиться',
+      text: 'Три способа в одном листе. Ссылка: срок, пароль, лимит скачиваний, уведомление владельцу, QR. Участнику: файл появится у него во «Входящих». В Telegram: карточка с кнопкой «Скачать» в любой чат через inline-режим бота или сам файл себе в чат.',
+      tg: ['switchInlineQuery("fs <id>", ["users","groups","channels"])', 'HapticFeedback.selectionChanged', 'showScanQrPopup (чужой QR)', 'MainButton «Создать ссылку»'],
+      api: ['<b>POST</b> /api/v1/shares {item, expires_in, password?, max_downloads, notify}', '<b>POST</b> /api/v1/files/{id}/share-user {username}', '<b>POST</b> /api/v1/files/{id}/send-to-chat', 'бот: inline-запрос fs &lt;id&gt; → карточка'],
+    },
+    main: () => {
+      if (S.shareTab === 'link') return S.linkMade ? { text: 'Скопировать ссылку', on: () => { tg('navigator.clipboard.writeText(url)'); toast('Ссылка скопирована'); } } : { text: 'Создать ссылку', on: () => { S.linkMade = true; tg('HapticFeedback.notificationOccurred("success")'); render(); } };
+      if (S.shareTab === 'user') return { text: S.members.size ? `Отправить (${S.members.size})` : 'Выберите участника', disabled: !S.members.size, on: () => { toast('Файл появится во «Входящих», бот пришлёт уведомление'); } };
+      return { text: 'Выбрать чат…', on: () => { tg('WebApp.switchInlineQuery("fs k7Qm2x", ["users","groups","channels"])'); toast('Telegram откроет выбор чата'); } };
+    },
+    renderSheet() {
+      const f = fileById(S.file);
+      const tabs = `<div class="seg" role="group" aria-label="Способ"><button type="button" data-act="shareTab" data-arg="link" aria-pressed="${S.shareTab === 'link'}">Ссылка</button><button type="button" data-act="shareTab" data-arg="user" aria-pressed="${S.shareTab === 'user'}">Участнику</button><button type="button" data-act="shareTab" data-arg="tg" aria-pressed="${S.shareTab === 'tg'}">В Telegram</button></div>`;
+      const head = `<div class="fhead" style="grid-template-columns:44px 1fr;margin-bottom:12px">${ftile(f)}<div><b style="font-size:15px">${esc(f.name)}</b><small>${f.size}</small></div></div>`;
+      let body = '';
+      if (S.shareTab === 'link') {
+        const exp = ['1 час', '1 день', '7 дней', '30 дней', 'Без срока'].map(e => `<button class="chip tap" type="button" data-act="expiry" data-arg="${e}" aria-pressed="${S.expiry === e}">${e}</button>`).join('');
+        body = `<p class="group-title"><span>Срок действия</span></p><div class="chips">${exp}</div>
+        <div class="group">
+          <button class="row tap" type="button" data-act="flip" data-arg="pass"><span class="tile" style="background:var(--c-backup)">${ic('key')}</span><span class="rt"><b>Пароль</b></span>${switchEl(S.pass)}</button>
+          <div class="row"><span class="tile" style="background:var(--c-doc)">${ic('download')}</span><span class="rt"><b>Лимит скачиваний</b></span><span class="stepper"><button type="button" data-act="limit" data-arg="-1" aria-label="Меньше">${ic('minus')}</button><span>${S.limit || '∞'}</span><button type="button" data-act="limit" data-arg="1" aria-label="Больше">${ic('plus')}</button></span></div>
+          <button class="row tap" type="button" data-act="flip" data-arg="viewOnly"><span class="tile" style="background:var(--c-other)">${ic('image')}</span><span class="rt"><b>Просмотр в браузере</b><small>для фото, видео и PDF</small></span>${switchEl(S.viewOnly)}</button>
+          <button class="row tap" type="button" data-act="flip" data-arg="notify"><span class="tile" style="background:var(--c-prog)">${ic('bell')}</span><span class="rt"><b>Сообщить о скачивании</b><small>бот пришлёт сообщение</small></span>${switchEl(S.notify)}</button>
+        </div>
+        ${S.linkMade ? `<p class="group-title"><span>Ссылка готова</span></p><div class="group"><div class="linkbox"><code>https://files.example.com/s/k7Qm2xV9…</code><button class="ib" type="button" data-act="toast" data-arg="Ссылка скопирована" aria-label="Скопировать">${ic('copy')}</button></div><div class="qr"><canvas id="qr" width="29" height="29" aria-label="QR-код ссылки (иллюстрация)"></canvas><small>QR для экрана · иллюстрация</small></div></div>` : `<p class="group-note" style="margin-top:-8px">Ссылка работает без входа. Отозвать её можно в «Мои ссылки».</p>`}`;
+      } else if (S.shareTab === 'user') {
+        const people = [['bob', 'Боб', '#3a86ff'], ['maria', 'Мария', '#9b5de5'], ['sergey', 'Сергей', '#2fbf71']];
+        body = `<div class="group">${people.map(([u, n, c]) => `<button class="row tap sel" type="button" data-act="member" data-arg="${u}"><span class="member" style="background:${c}">${n[0]}</span><span class="rt"><b>${n}</b><small>@${u} · Telegram привязан</small></span><span class="check ${S.members.has(u) ? 'on' : ''}">${S.members.has(u) ? ic('check') : ''}</span></button>`).join('')}</div>
+        <p class="group-note">Файл останется у вас; у получателя он появится во «Входящих», бот пришлёт уведомление.</p>`;
+      } else {
+        body = `<p class="group-title"><span>Так увидят в чате</span></p>
+        <div class="chatcard"><div class="mini-bubble">📄 <b>${esc(f.name)}</b><small>${f.size} · ссылка до 14 окт</small></div><div class="mini-kb">⬇️ Скачать</div></div>
+        <div class="group">
+          <button class="row tap" type="button" data-act="tochat"><span class="tile" style="background:var(--tg-button)">${ic('send')}</span><span class="rt"><b>Отправить мне в чат с ботом</b><small>до 50 МБ — файлом, больше — ссылкой</small></span></button>
+        </div>`;
+      }
+      return head + tabs + body;
+    },
+  },
+
+  links: {
+    nav: 'Ссылки и запросы', stage: 'Этап 3', title: 'Мои ссылки', get sub() { return S.linksTab === 'links' ? '5 активных' : 'запросы файлов'; },
+    notes: {
+      title: 'Мои ссылки и запросы файлов',
+      text: 'Все выданные ссылки с остатком срока и счётчиком скачиваний, отзыв в одно касание. Запрос файлов — ссылка, по которой человек без аккаунта загружает файлы в вашу папку; о каждом поступлении бот пишет в чат.',
+      tg: ['showConfirm (отзыв)', 'HapticFeedback', 'MainButton «Новый запрос файлов»'],
+      api: ['<b>GET</b> /api/v1/shares', '<b>PATCH</b> /api/v1/shares/{id} · <b>DELETE</b> /api/v1/shares/{id}', '<b>GET</b> /api/v1/requests · <b>POST</b> /api/v1/requests', 'публично: /s/&lt;token&gt; · /r/&lt;token&gt;'],
+    },
+    main: () => S.linksTab === 'links' ? { text: 'Новая ссылка', on: () => nav('share') } : { text: 'Новый запрос файлов', on: () => toast('Название, папка, срок, лимит файлов') },
+    render() {
+      const tabs = `<div class="seg" role="group" aria-label="Раздел"><button type="button" data-act="linksTab" data-arg="links" aria-pressed="${S.linksTab === 'links'}">Ссылки</button><button type="button" data-act="linksTab" data-arg="req" aria-pressed="${S.linksTab === 'req'}">Запросы файлов</button></div>`;
+      if (S.linksTab === 'links') {
+        const L = [
+          [FILES.my[1], 'до 14 окт', 'скачано 3 из 10', 'активна', 'var(--c-ok)'],
+          [FILES.my[8], 'до 1 ноя', 'скачано 12 · пароль', 'активна', 'var(--c-ok)'],
+          [FILES.shared[3], 'без срока', 'скачано 4', 'активна', 'var(--c-ok)'],
+          [FILES.my[0], 'истекла 5 окт', 'скачано 1 из 1', 'истекла', 'var(--c-other)'],
+        ];
+        return tabs + `<div class="group">${L.map(([f, exp, dl, st, k], i) => `<div class="row wide">${ftile(f)}<span class="rt"><b>${esc(f.name)}</b><small>${exp} · ${dl}</small></span>${st === 'активна' ? `<button class="tbtn" type="button" data-act="revoke" data-arg="${i}" style="color:var(--tg-destructive)">Отозвать</button>` : `<span class="status-pill" style="--k:${k}">${st}</span>`}</div>`).join('')}</div>
+        <p class="group-note">Скачивания по ссылкам видны и в журнале администратора.</p>`;
+      }
+      return tabs + `<div class="group">
+        <div class="row wide"><span class="ftile" style="--k:var(--c-doc)">${ic('inbox')}</span><span class="rt"><b>Документы для визы</b><small>→ Мои › Документы · получено 4 · до 20 окт</small></span><span class="status-pill" style="--k:var(--c-ok)">открыт</span></div>
+        <div class="row wide"><span class="ftile" style="--k:var(--c-photo)">${ic('inbox')}</span><span class="rt"><b>Фото со свадьбы</b><small>→ Общие › Фото · получено 37 · до 31 окт</small></span><span class="status-pill" style="--k:var(--c-ok)">открыт</span></div>
+        <div class="row wide"><span class="ftile" style="--k:var(--c-backup)">${ic('inbox')}</span><span class="rt"><b>Бэкап роутера от Сергея</b><small>→ Бэкапы › Серверы · получен 1</small></span><span class="status-pill" style="--k:var(--c-other)">закрыт</span></div>
+      </div><p class="group-note">Человек открывает ссылку в браузере, видит «Загрузите файлы для Анны» и загружает без регистрации. Лимиты: число файлов, размер, срок.</p>`;
+    },
+  },
+
+  trash: {
+    nav: 'Корзина', stage: 'Этап 2', title: 'Корзина', get sub() { return `${S.trash[S.trashZone].length} ${plural(S.trash[S.trashZone].length, 'файл', 'файла', 'файлов')}`; },
+    notes: {
+      title: 'Корзина',
+      text: 'Удаление больше не безвозвратное: файл 30 дней лежит в корзине и восстанавливается в исходную категорию. Нижняя кнопка перекрашена в цвет опасного действия через MainButton.setParams.',
+      tg: ['MainButton.setParams({color: destructive_text_color})', 'showConfirm', 'HapticFeedback.notificationOccurred("warning")'],
+      api: ['<b>GET</b> /api/v1/trash?scope=my', '<b>POST</b> /api/v1/trash/{id}/restore', '<b>DELETE</b> /api/v1/trash/{id} · <b>DELETE</b> /api/v1/trash'],
+    },
+    main: () => S.trash[S.trashZone].length ? { text: 'Очистить корзину', danger: true, on: () => popup({ title: 'Очистить корзину?', message: 'Файлы удалятся навсегда. Это нельзя отменить.', buttons: [{ text: 'Отмена' }, { text: 'Очистить', type: 'destructive', on: () => { S.trash[S.trashZone] = []; tg('HapticFeedback.notificationOccurred("warning")'); render(); toast('Корзина очищена'); } }] }) } : null,
+    render() {
+      const tabs = `<div class="seg" role="group" aria-label="Зона"><button type="button" data-act="trashZone" data-arg="my" aria-pressed="${S.trashZone === 'my'}">Мои</button><button type="button" data-act="trashZone" data-arg="shared" aria-pressed="${S.trashZone === 'shared'}">Общие</button></div>`;
+      const items = S.trash[S.trashZone];
+      if (!items.length) return tabs + `<div class="group"><div class="empty-note">${ic('trash')}<br>Корзина пуста.<br>Удалённые файлы хранятся здесь 30 дней.</div></div>`;
+      return tabs + `<div class="group">${items.map(t => `<div class="row wide">${ftile(t)}<span class="rt"><b>${esc(t.name)}</b><small>${t.size} · ${t.when} · <span style="color:${t.left <= 7 ? 'var(--c-warn)' : 'inherit'}">ещё ${t.left} дн.</span></small></span><button class="tbtn" type="button" data-act="restore" data-arg="${t.id}">Вернуть</button></div>`).join('')}</div>
+      <p class="group-note">Файлы удаляются навсегда через 30 дней. Корзину «Общих» очищает только администратор.</p>`;
+    },
+  },
+
+  admin: {
+    nav: 'Администрирование', stage: 'Этап 3', title: 'Администрирование', sub: 'только для admin',
+    notes: {
+      title: 'Администрирование',
+      text: 'Сервер, участники, приглашения и журнал. Приглашение уходит в Telegram ссылкой ?startapp=inv_…: получатель открывает мини-приложение и регистрируется без пароля, аккаунт сразу привязан к его Telegram.',
+      tg: ['MainButton «Пригласить через Telegram»', 'switchInlineQuery / shareMessage (приглашение)', 'showConfirm (удаление участника)'],
+      api: ['<b>GET</b> /api/v1/admin/status', '<b>GET</b> /api/v1/admin/users · <b>POST</b> /api/v1/admin/invites', '<b>POST</b> /api/v1/admin/users/{u}/unlink', '<b>GET</b> /api/v1/admin/audit?cursor=…'],
+    },
+    main: () => ({ text: 'Пригласить через Telegram', on: () => { tg('POST /api/v1/admin/invites → t.me/files_example_bot?startapp=inv_…'); toast('Приглашение готово: выберите, кому отправить'); } }),
+    render() {
+      const users = [['anna', 'админ', '4,6 ГБ', 46, true, '#f0a54d'], ['bob', '', '1,2 ГБ', 12, true, '#3a86ff'], ['maria', '', '640 МБ', 6, false, '#9b5de5'], ['sergey', '', '80 МБ', 1, true, '#2fbf71']];
+      return `
+      <p class="group-title"><span>Сервер</span></p>
+      <div class="group">
+        <dl class="kv"><dt>rust-file-manager</dt><dd>1.5.0 · a1b2c3d</dd><dt>Работает</dt><dd>12 дн. 4 ч</dd><dt>Диск</dt><dd>41,8 из 60 ГБ</dd></dl>
+        <div class="diskbar" aria-label="Занято на диске"><i style="width:21%;background:var(--c-doc)"></i><i style="width:8%;background:var(--c-prog)"></i><i style="width:38%;background:var(--c-other)"></i><i style="width:2%;background:var(--c-backup)"></i></div>
+        <dl class="kv" style="padding-top:0"><dt>Корзина</dt><dd>1,1 ГБ</dd><dt>Незавершённые загрузки</dt><dd>214 МБ</dd><dt>Активные ссылки</dt><dd>14</dd></dl>
+      </div>
+      <p class="group-title"><span>Участники · 4</span></p>
+      <div class="group">${users.map(([u, role, used, pct, tgOk, c]) => `<div class="row wide"><span class="member" style="background:${c}">${u[0].toUpperCase()}</span><span class="rt"><b>${u}${role ? ` <span class="status-pill" style="--k:var(--tg-button)">${role}</span>` : ''}</b><small>${used} · ${tgOk ? 'Telegram привязан' : 'без Telegram'}</small><span class="bar"><i style="width:${pct}%"></i></span></span>${ic('right', 'icon chev')}</div>`).join('')}</div>
+      <p class="group-title"><span>Журнал</span><button type="button" data-act="toast" data-arg="Фильтры: участник, действие, период">Фильтры</button></p>
+      <div class="group"><ul class="audit">
+        <li><time>18:42</time><span>По ссылке скачан «Договор аренды 2026.pdf» (3 из 10)</span></li>
+        <li><time>18:40</time><span>anna загрузила IMG_4821.jpg через мини-приложение</span></li>
+        <li><time>17:12</time><span>maria загрузила «Смета ремонта.xlsx» в Общие</span></li>
+        <li><time>16:03</time><span>bob привязал Telegram</span></li>
+        <li><time>09:20</time><span>В запрос «Документы для визы» загружен passport.pdf</span></li>
+      </ul></div>`;
+    },
+  },
+
+  link: {
+    nav: 'Привязка аккаунта', stage: 'Этап 1', root: true, title: 'Файлы', sub: 'вход',
+    notes: {
+      title: 'Привязка аккаунта',
+      text: 'Первый запуск. Сервер уже знает, кто открыл приложение: initData подписана Telegram, подпись Ed25519 проверяется без токена бота. Остаётся связать Telegram с аккаунтом файлового менеджера: паролем один раз или приглашением.',
+      tg: ['initData (signature, auth_date, start_param)', 'MainButton «Привязать»', 'HapticFeedback.notificationOccurred'],
+      api: ['<b>POST</b> /api/v1/tg/session → 403 {code:"not_linked"}', '<b>POST</b> /api/v1/tg/link {init_data, username, password}', '<b>POST</b> /api/v1/tg/register {init_data, invite_token, username}'],
+    },
+    main: () => ({ text: S.linkMode === 'account' ? 'Привязать аккаунт' : 'Создать аккаунт', on: () => { tg('HapticFeedback.notificationOccurred("success")'); toast('Готово. Дальше вход без пароля'); setTimeout(() => nav('home'), 900); } }),
+    render() {
+      return `
+      <div class="link-hero"><span class="avatar">А</span><b>Анна</b><p>@anna_k в Telegram</p><p>Свяжите Telegram с аккаунтом файлового менеджера. Пароль понадобится один раз.</p></div>
+      <div class="seg" role="group" aria-label="Способ входа"><button type="button" data-act="linkMode" data-arg="account" aria-pressed="${S.linkMode === 'account'}">У меня есть аккаунт</button><button type="button" data-act="linkMode" data-arg="invite" aria-pressed="${S.linkMode === 'invite'}">Приглашение</button></div>
+      ${S.linkMode === 'account'
+        ? `<div class="group"><input class="field" id="lu" autocomplete="username" placeholder="Логин" value="anna" aria-label="Логин"><input class="field" id="lp" type="password" autocomplete="current-password" placeholder="Пароль" aria-label="Пароль"></div><p class="group-note">После привязки входить будете по Telegram. Пароль остаётся для входа из браузера.</p>`
+        : `<div class="group"><div class="row"><span class="tile" style="background:var(--c-prog)">${ic('user-plus')}</span><span class="rt"><b>Приглашение от anna</b><small>действует до 14 окт · найдено в ссылке</small></span>${ic('check', 'icon')}</div><input class="field" id="ln" placeholder="Имя пользователя" value="anna_k" aria-label="Имя пользователя"></div><p class="group-note">Латинские буквы, цифры, «_» и «-», от 3 до 32 символов. Пароль не нужен: вход по Telegram.</p>`}`;
+    },
+  },
+
+  public: {
+    nav: 'Публичная ссылка', stage: 'Этап 3', browser: true, root: true,
+    notes: {
+      title: 'Публичная ссылка на папку',
+      text: 'Так ссылку видит человек без аккаунта: в обычном браузере, не в Telegram, в фирменном стиле файлового менеджера. Ссылка на папку открывает только её содержимое: внутрь можно, выше — нельзя. Файл скачивается по одному или вся папка одним ZIP. Пароль, срок и лимит скачиваний задаёт владелец. Введите пароль и нажмите «Открыть».',
+      tg: [],
+      api: ['<b>GET</b> /s/&lt;token&gt;[?path=Чеки]', '<b>POST</b> /s/&lt;token&gt;/unlock {password} — 5 попыток за 15 мин', '<b>GET</b> /s/&lt;token&gt;/download?path=… · <b>GET</b> /s/&lt;token&gt;/zip', 'Referrer-Policy: no-referrer · X-Robots-Tag: noindex · строгий CSP'],
+    },
+    main: () => null,
+    render() {
+      const brand = `<div class="pub-brand"><span class="pub-logo">${ic('folder')}</span><b>Файлы</b><span class="pub-host">files.example.com</span></div>`;
+      if (S.pubLocked) {
+        return `<div class="pub">${brand}<div class="pub-card">
+          <span class="pub-ic">${ic('lock')}</span>
+          <h2>Ссылка защищена паролем</h2>
+          <p class="pub-who">Анна поделилась с вами папкой. Введите пароль, который она вам сообщила.</p>
+          <label class="pub-label" for="pubpass">Пароль</label>
+          <input class="pub-input" id="pubpass" type="password" autocomplete="off" value="kitchen-2026">
+          <button class="pub-btn" type="button" data-act="unlock">Открыть</button>
+          <small>После 5 неверных попыток ввод блокируется на 15 минут.</small>
+        </div><p class="pub-legal">Файлы передаются по защищённому соединению (HTTPS).</p></div>`;
+      }
+      const files = INSIDE.f1.files.map(fileById);
+      const row = f => { const c = CAT[f.cat]; return `<li>${f.ph ? `<span class="ftile photo ${f.ph}" style="--k:${c.k}"></span>` : `<span class="ftile" style="--k:${c.k}">${ic(c.icon)}</span>`}<span class="nm">${esc(f.name)}<small>${f.size}</small></span><button class="pub-dl" type="button" data-act="pubdl" data-arg="${f.id}" aria-label="Скачать ${esc(f.name)}">${ic('download')}</button></li>`; };
+      return `<div class="pub">${brand}<div class="pub-card">
+        <div class="pub-head"><span class="ftile folder" style="--k:var(--c-doc)">${ic('folder')}</span><div><p class="pub-who">Анна поделилась папкой</p><h2>Ремонт кухни</h2><small>12 файлов · 46 МБ</small></div></div>
+        <button class="pub-btn" type="button" data-act="pubzip">${ic('download')}Скачать всё · ZIP, 46 МБ</button>
+        <ul class="pub-list">
+          <li><span class="ftile folder" style="--k:var(--c-doc)">${ic('folder')}</span><button class="nm" type="button" data-act="toast" data-arg="Переход в «Чеки» — только внутри общей папки">Чеки<small>9 файлов · 4 МБ</small></button>${ic('right', 'icon chev')}</li>
+          ${files.map(row).join('')}
+        </ul>
+        <p class="pub-foot">Ссылка действует до 14 октября · осталось 7 скачиваний из 10.</p>
+      </div><p class="pub-legal">Страница не индексируется поисковиками. Если вы не ждали эту ссылку, просто закройте её.</p></div>`;
+    },
+  },
+
+  chat: {
+    nav: 'Чат с ботом', stage: 'Этап 1 · 3', chat: true, root: true,
+    notes: {
+      title: 'Чат с ботом',
+      text: 'Слева от поля ввода — кнопка «Файлы» вместо «Меню»: она у всех привязанных пользователей, включая админов. Список команд не пропал: нажмите на поле ввода — ввод «/» покажет команды именно этого пользователя (у админа — расширенный список). Файл, присланный боту, сохраняется после выбора «Мои / Общие / Папка…». Нажмите «Мои».',
+      tg: ['setChatMenuButton(chat_id, MenuButtonWebApp «Файлы»)', 'setMyCommands по областям — без изменений', 'InlineKeyboardButton(web_app=…)', 'CallbackQuery fm:save:… / fm:dir:…', 'getFile → до 20 МБ'],
+      api: ['бот → <b>POST</b> /internal/v1/files?telegram_id&scope&name (поток)', 'бот → <b>GET</b> /internal/v1/events?after&wait=25', 'бот → <b>POST</b> /internal/v1/events/{id}/ack'],
+    },
+    main: () => null,
+  },
+};
+
+const EDITOR_TEXT = `services:
+  headscale:
+    image: headscale/headscale:0.26
+    container_name: headscale
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8085:8080"
+    volumes:
+      - ./config:/etc/headscale
+      - ./data:/var/lib/headscale
+    command: serve
+    healthcheck:
+      test: ["CMD", "headscale", "health"]
+      interval: 30s
+      retries: 3`;
+
+/* ---------- list rendering ---------- */
+const match = (name) => !S.q || name.toLowerCase().includes(S.q.toLowerCase());
+function visibleFolders() {
+  const list = S.path.length ? folderContents(curFolder()).folders : FOLDERS[S.zone].filter(f => S.cat === 'Все' || f.cat === S.cat);
+  return list.filter(f => match(f.name));
+}
+function visibleFiles() {
+  const list = S.path.length ? folderContents(curFolder()).files : FILES[S.zone].filter(f => S.cat === 'Все' || f.cat === S.cat);
+  return list.filter(f => match(f.name));
+}
+function crumbs() {
+  const root = S.path[0];
+  const cat = root.sub ? `Бэкапы › ${root.sub}` : root.cat;
+  return `<nav class="crumbs" aria-label="Путь"><button type="button" data-act="crumb" data-arg="-1">${cat}</button>${S.path.map((f, i) => i < S.path.length - 1 ? `<span>›</span><button type="button" data-act="crumb" data-arg="${i}">${esc(f.name)}</button>` : `<span>›</span><b>${esc(f.name)}</b>`).join('')}</nav>`;
+}
+function folderRow(fo) {
+  const c = CAT[fo.cat];
+  const loc = fo.sub ? `Бэкапы › ${fo.sub}` : fo.cat;
+  return `<button class="row wide tap" type="button" data-act="enter" data-arg="${fo.id}"><span class="ftile folder" style="--k:${c.k}">${ic('folder')}</span><span class="rt"><b>${hl(fo.name)}</b><small>${fo.files} ${plural(fo.files, 'файл', 'файла', 'файлов')} · ${fo.size}${!S.path.length && S.cat === 'Все' ? ' · ' + loc : ''}${fo.by ? ' · ' + fo.by : ''}</small></span>${ic('right', 'icon chev')}</button>`;
+}
+function renderList() {
+  const folders = visibleFolders();
+  const items = visibleFiles();
+  if (!items.length && !folders.length) return `<div class="group"><div class="empty-note">${S.q ? `Ничего не найдено по «${esc(S.q)}».<br>Поиск идёт по именам файлов и папок.` : 'Папка пуста.<br>Загрузите сюда файлы или создайте подпапку.'}</div></div>`;
+  if (S.view === 'grid') {
+    const fcells = folders.map(fo => `<button class="cell folder tap" type="button" data-act="enter" data-arg="${fo.id}" style="--k:${CAT[fo.cat].k}" aria-label="Папка ${esc(fo.name)}">${ic('folder')}<span class="cname">${esc(fo.name)}</span></button>`).join('');
+    return `<div class="grid">${fcells}${items.map(f => {
+      const c = CAT[f.cat];
+      const chk = S.selecting ? `<span class="check ${S.sel.has(f.id) ? 'on' : ''}" style="top:6px;right:6px;margin:0;background:${S.sel.has(f.id) ? '' : 'rgba(0,0,0,.25)'};border-color:#fff">${S.sel.has(f.id) ? ic('check') : ''}</span>` : '';
+      return `<button class="cell tap ${f.ph || ''}" type="button" data-act="pick" data-arg="${f.id}" style="--k:${c.k}" aria-label="${esc(f.name)}">${f.ph ? '' : ic(f.icon || c.icon)}${f.ph ? (f.dur ? `<span class="dur">${f.dur}</span>` : '') : `<span class="cname">${esc(f.name)}</span>`}${chk}</button>`;
+    }).join('')}</div>`;
+  }
+  const fhtml = folders.length ? `<p class="group-title"><span>Папки</span></p><div class="group">${folders.map(folderRow).join('')}</div>` : '';
+  const groups = {};
+  items.forEach(f => (groups[S.path.length ? 'Файлы' : f.group] ||= []).push(f));
+  return fhtml + Object.entries(groups).map(([g, fs]) => `<p class="group-title"><span>${g}</span></p><div class="group">${fs.map(fileRow).join('')}</div>`).join('');
+}
+
+/* ---------- navigation ---------- */
+const PATHS = { public: ['public'], home: ['home'], browse: ['home', 'browse'], file: ['home', 'browse', 'file'], viewer: ['home', 'browse', 'viewer'], editor: ['home', 'browse', 'editor'], uploads: ['home', 'uploads'], share: ['home', 'browse', 'file', 'share'], links: ['home', 'links'], trash: ['home', 'trash'], admin: ['home', 'admin'], link: ['link'], chat: ['chat'] };
+const cur = () => S.stack[S.stack.length - 1];
+function nav(name) {
+  if (name === 'file' || name === 'share') S.file = S.file || 2;
+  if (name === 'viewer') S.file = 1;
+  if (name === 'editor') S.file = 3;
+  S.stack = [...PATHS[name]];
+  S.selecting = false; S.sel.clear(); S.path = []; S.slash = false;
+  render();
+  logScreen();
+}
+function go(name) { S.stack.push(name); render(); logScreen(); }
+function back() {
+  if (cur() === 'editor' && S.edDirty) {
+    return popup({ title: 'Закрыть без сохранения?', message: 'Изменения в docker-compose.yml пропадут.', buttons: [{ text: 'Остаться' }, { text: 'Закрыть', type: 'destructive', on: () => { S.edDirty = false; S.edText = null; S.stack.pop(); render(); } }] });
+  }
+  if (cur() === 'browse' && S.path.length) { S.path.pop(); S.q = ''; tg('BackButton.onClick → на уровень выше'); render(); return; }
+  if (S.stack.length > 1) { S.stack.pop(); tg('BackButton.onClick → назад'); render(); }
+}
+function logScreen() {
+  const s = cur();
+  if (s === 'viewer') { tg('WebApp.requestFullscreen()'); tg('WebApp.disableVerticalSwipes()'); }
+  else if (s === 'file' || s === 'share') tg('HapticFeedback.impactOccurred("light")');
+  else if (s === 'editor') tg('GET /api/v1/files/{id}/content → ETag');
+  else if (s === 'chat') tg('setChatMenuButton(MenuButtonWebApp)');
+  else tg(S.stack.length > 1 ? 'BackButton.show()' : 'BackButton.hide()');
+}
+function plural(n, one, few, many) { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many; }
+
+/* ---------- rendering ---------- */
+let toastTimer;
+function toast(msg) {
+  const el = document.createElement('div');
+  el.className = 'toast'; el.innerHTML = ic('check-circle') + `<span>${esc(msg)}</span>`;
+  $('#screen .toast')?.remove();
+  $('#screen').appendChild(el);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.remove(), 2200);
+}
+function popup({ title, message, buttons }) {
+  tg(`WebApp.showPopup({title: "${title}"})`);
+  const o = document.createElement('div');
+  o.className = 'popup';
+  o.innerHTML = `<div class="pop" role="alertdialog" aria-label="${esc(title)}"><div class="pb"><b>${esc(title)}</b><p>${esc(message)}</p></div><div class="pbtns">${buttons.map((b, i) => `<button type="button" class="${b.type || ''}" data-i="${i}">${esc(b.text)}</button>`).join('')}</div></div>`;
+  o.addEventListener('click', e => {
+    const b = e.target.closest('button[data-i]');
+    if (!b && e.target !== o) return;
+    o.remove();
+    if (b) buttons[+b.dataset.i].on?.();
+  });
+  $('#screen').appendChild(o);
+  o.querySelector('button')?.focus();
+}
+function setBottom(main, secondary) {
+  const bar = $('#bottom');
+  if (!main && !secondary) { bar.hidden = true; bar.innerHTML = ''; return; }
+  bar.hidden = false;
+  bar.innerHTML = `${secondary ? `<button class="sb2" type="button" id="sb2">${esc(secondary.text)}</button>` : ''}${main ? `<button class="mb ${main.danger ? 'danger' : ''}" type="button" id="mb" ${main.disabled ? 'disabled' : ''}>${esc(main.text)}</button>` : ''}`;
+  if (main) $('#mb').onclick = () => { tg(`MainButton.onClick («${main.text}»)`); main.on?.(); };
+  if (secondary) $('#sb2').onclick = () => { tg(`SecondaryButton.onClick («${secondary.text}»)`); secondary.on?.(); };
+}
+function render() {
+  const name = cur();
+  const sc = SCREENS[name];
+  const baseName = sc.base || name;
+  const base = SCREENS[baseName];
+  const head = $('#head'), content = $('#content'), overlay = $('#overlay');
+  overlay.innerHTML = '';
+  $('#screen .popup')?.remove();
+  content.className = 'content' + (sc.flush ? ' flush' : '') + (sc.browser ? ' pubc' : '');
+  $('#screen').classList.toggle('fs', !!sc.fullscreen);
+  $('#screen').classList.toggle('browser', !!sc.browser);
+  $('#screen .cmds')?.remove();
+
+  if (sc.chat) {
+    head.innerHTML = `<div class="chat-head"><span class="back">${ic('left')}Чаты</span><div class="ct"><b>Файлы · бот</b><span>бот</span></div><span class="av">${ic('folder')}</span></div>`;
+    content.className = 'chat';
+    content.innerHTML = renderChat();
+    $('#bottom').innerHTML = '';
+    $('#bottom').hidden = true;
+    let comp = $('#screen .composer');
+    if (!comp) { comp = document.createElement('div'); comp.className = 'composer'; $('#screen').insertBefore(comp, $('#bottom')); }
+    comp.innerHTML = `<button class="menubtn" type="button" data-act="openapp">${ic('folder')}Файлы</button><button class="inp" type="button" data-act="slash" aria-label="Поле ввода: показать команды">${S.slash ? '<b style="color:var(--tg-text)">/</b>' : 'Сообщение'}</button><span class="ci">${ic('clip')}</span><span class="ci">${ic('mic')}</span>`;
+    if (S.slash) {
+      const cmds = document.createElement('div');
+      cmds.className = 'cmds';
+      cmds.setAttribute('role', 'listbox');
+      cmds.innerHTML = [['/files', 'Открыть файлы'], ['/files_status', 'Состояние файлового менеджера'], ['/files_invite', 'Пригласить в «Файлы»'], ['/start', 'Главное меню'], ['/help', 'Справка по командам'], ['/info', 'Информация о боте']]
+        .map(([c, d]) => `<button type="button" role="option" data-act="cmd" data-arg="${c}"><b>${c}</b><span>${d}</span></button>`).join('') + '<p>…и остальные команды администратора. У обычного пользователя здесь только его базовый список.</p>';
+      $('#screen').insertBefore(cmds, comp);
+    }
+    content.scrollTop = content.scrollHeight;
+  } else {
+    $('#screen .composer')?.remove();
+    if (sc.fullscreen) {
+      head.innerHTML = '';
+    } else if (sc.browser) {
+      head.innerHTML = `<div class="br-bar"><span class="br-url">${ic('lock')}files.example.com/s/k7Qm2x…</span><button class="br-btn" type="button" data-act="toast" data-arg="Это обычный браузер получателя, не Telegram" aria-label="Меню браузера">${ic('more')}</button></div>`;
+    } else {
+      const left = S.stack.length > 1 && !sc.root
+        ? `<button class="hl" type="button" data-act="back">${ic('left')}Назад</button>`
+        : `<button class="hl" type="button" data-act="close">Закрыть</button>`;
+      const t = sc.sheet ? base : sc;
+      head.innerHTML = `<div class="tg-head">${left}<div class="ht"><b>${esc(t.title)}</b><span>${esc(t.sub || '')}</span></div><button class="hr" type="button" data-act="more" aria-label="Меню мини-приложения">${ic('more')}</button></div>`;
+    }
+    content.innerHTML = base.render ? base.render() : '';
+    if (sc.sheet) {
+      overlay.innerHTML = `<div class="layer" data-act="layer"><div class="sheet" role="dialog" aria-label="${name === 'share' ? 'Поделиться' : 'Карточка файла'}"><div class="grab"></div><div class="sc">${sc.renderSheet()}</div><div class="bottom" id="sheetBottom"></div></div></div>`;
+    }
+  }
+
+  // bottom buttons (MainButton / SecondaryButton)
+  const main = sc.main ? sc.main() : null;
+  const secondary = sc.secondary ? sc.secondary() : null;
+  if (sc.sheet) {
+    $('#bottom').hidden = true;
+    const sb = $('#sheetBottom');
+    sb.innerHTML = main ? `<button class="mb" type="button" id="smb" ${main.disabled ? 'disabled' : ''}>${esc(main.text)}</button>` : '';
+    if (main) $('#smb').onclick = () => { tg(`MainButton.onClick («${main.text}»)`); main.on?.(); };
+  } else if (!sc.chat) {
+    setBottom(main, secondary);
+  }
+
+  if (name === 'editor') bindEditor();
+  if (name === 'browse') bindSearch();
+  if (name === 'share' && S.linkMade && S.shareTab === 'link') drawQR();
+  updateNotes();
+  updateNav();
+}
+function renderChat() {
+  const step = S.chatStep;
+  return `<span class="day">Сегодня</span>
+  <div class="msg in">Отправьте файл, и я сохраню его в хранилище. Все файлы — по кнопке «Файлы» внизу.<span class="meta">17:58</span></div>
+  <div class="msg out"><div class="docmsg"><span class="dic">${ic('file-text')}</span><div><b>Смета ремонта.xlsx</b><small>248 КБ</small></div></div><span class="meta">18:03 ✓✓</span></div>
+  ${step === 0 ? `<div class="msg in">Куда сохранить «Смета ремонта.xlsx» (248 КБ)?<br><small style="color:var(--tg-hint)">Категория: авто → Документы</small><span class="meta">18:03</span></div>
+  <div class="kb"><button type="button" data-act="chatSave" data-arg="my">${ic('lock')}Мои</button><button type="button" data-act="chatSave" data-arg="shared">${ic('users')}Общие</button><button type="button" data-act="toast" data-arg="Недавние папки: Ремонт кухни, Сканы документов… или «Выбрать в приложении»">${ic('folder')}Папка…</button><button type="button" data-act="toast" data-arg="Отменено">Отмена</button></div>`
+    : `<div class="msg in">✅ Сохранено: ${step === 1 ? 'Мои файлы' : 'Общие файлы'} › Документы<span class="meta">18:03</span></div><div class="kb"><button class="full" type="button" data-act="openapp">${ic('folder')}Открыть в Файлах</button></div>`}
+  <div class="msg in">📥 В запрос «Документы для визы» загружено: <b>passport.pdf</b> (1,8 МБ)<span class="meta">18:21</span></div>
+  <div class="kb"><button class="full" type="button" data-act="openapp">${ic('folder')}Открыть папку</button></div>
+  <div class="msg in">⬇️ По ссылке на «Договор аренды 2026.pdf» скачали файл (3 из 10)<span class="meta">18:42</span></div>
+  <div class="kb"><button class="full" type="button" data-act="openapp">${ic('link')}Мои ссылки</button></div>`;
+}
+function updateNotes() {
+  const sc = SCREENS[cur()];
+  const n = sc.notes;
+  $('#noteCard').innerHTML = `
+    <h3>${esc(n.title)} <span class="stage-tag">${esc(sc.stage)}</span></h3>
+    <p>${esc(n.text)}</p>
+    <div class="note-sec"><h4>Telegram WebApp</h4>${n.tg.length ? `<div class="chips-sh">${n.tg.map(t => `<span>${esc(t)}</span>`).join('')}</div>` : '<p>Не используется: ссылка открывается в обычном браузере получателя, без Telegram.</p>'}</div>
+    <div class="note-sec"><h4>Сервер</h4><ul class="api-list">${n.api.map(a => `<li>${a}</li>`).join('')}</ul></div>`;
+}
+function updateNav() {
+  const active = cur();
+  document.querySelectorAll('#nav button').forEach(b => b.setAttribute('aria-current', String(b.dataset.screen === active)));
+}
+
+/* ---------- editor ---------- */
+function bindEditor() {
+  const ta = $('#edArea'), gut = $('#gutter');
+  const lines = () => { gut.innerHTML = ta.value.split('\n').map((_, i) => i + 1).join('<br>'); };
+  lines();
+  ta.addEventListener('input', () => {
+    S.edText = ta.value; lines();
+    if (!S.edDirty) {
+      S.edDirty = true; S.edSavedNote = false;
+      tg('WebApp.enableClosingConfirmation()');
+      const t = $('#head .ht span'); if (t) t.textContent = 'изменён';
+      setBottom(SCREENS.editor.main(), SCREENS.editor.secondary());
+    }
+    $('#edPos').textContent = `${ta.value.split('\n').length} строк`;
+  });
+  ta.addEventListener('scroll', () => { gut.scrollTop = ta.scrollTop; });
+}
+function saveEditor() {
+  tg('PUT /api/v1/files/{id}/content If-Match: "e3b0c4…"');
+  S.edDirty = false; S.edVersion += 1; S.edSavedNote = true;
+  tg('WebApp.disableClosingConfirmation()');
+  tg('HapticFeedback.notificationOccurred("success")');
+  render();
+  toast(`Сохранено · версия ${S.edVersion}`);
+}
+
+/* ---------- search ---------- */
+function bindSearch() {
+  const q = $('#q');
+  q.addEventListener('input', () => { S.q = q.value; $('#fileList').innerHTML = renderList(); });
+}
+
+/* ---------- qr illustration ---------- */
+function drawQR() {
+  const c = $('#qr'); if (!c) return;
+  const ctx = c.getContext('2d'), n = 29;
+  const fg = getComputedStyle($('#screen')).getPropertyValue('--tg-text').trim() || '#000';
+  const bg = getComputedStyle($('#screen')).getPropertyValue('--tg-section-bg').trim() || '#fff';
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, n, n);
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  ctx.fillStyle = fg;
+  for (let y = 1; y < n - 1; y++) for (let x = 1; x < n - 1; x++) if (rnd() > .52) ctx.fillRect(x, y, 1, 1);
+  const finder = (x, y) => { ctx.fillStyle = bg; ctx.fillRect(x - 1, y - 1, 9, 9); ctx.fillStyle = fg; ctx.fillRect(x, y, 7, 7); ctx.fillStyle = bg; ctx.fillRect(x + 1, y + 1, 5, 5); ctx.fillStyle = fg; ctx.fillRect(x + 2, y + 2, 3, 3); };
+  finder(1, 1); finder(n - 8, 1); finder(1, n - 8);
+}
+
+/* ---------- actions ---------- */
+function openFile(id) {
+  const f = fileById(id);
+  S.file = id;
+  if (f.text) { S.stack = ['home', 'browse', 'editor']; render(); logScreen(); return; }
+  if (f.ph && f.cat === 'Фото') { S.stack = ['home', 'browse', 'viewer']; render(); logScreen(); return; }
+  if (f.cat === 'Видео') { tg('POST /api/v1/files/{id}/link {purpose:"stream"} → <video src="/d/…">'); toast('Видео откроется в плеере с перемоткой'); return; }
+  tg('WebApp.openLink(signed_url) — PDF во внешнем просмотрщике');
+  toast('Откроется во внешнем просмотрщике');
+}
+const ACTIONS = {
+  go: a => go(a), nav: a => nav(a), back: () => back(),
+  close: () => { tg('WebApp.close()'); toast('Мини-приложение закроется'); },
+  more: () => { tg('SettingsButton.onClick → Настройки'); toast('Меню ⋯: Настройки, Обновить, Добавить на экран «Домой»'); },
+  toast: a => toast(a),
+  qr: () => { tg('WebApp.showScanQrPopup({text: "Наведите на QR"})'); toast('Сканер QR: вход на ПК или чужая ссылка'); },
+  'zone-go': a => { S.zone = a; S.cat = 'Все'; S.q = ''; S.path = []; go('browse'); },
+  zone: a => { S.zone = a; S.cat = 'Все'; S.path = []; S.sel.clear(); tg('HapticFeedback.selectionChanged()'); render(); },
+  enter: a => {
+    const fo = allFolders().find(x => x.id === a);
+    S.path.push(fo); S.q = ''; S.selecting = false; S.sel.clear();
+    tg(`GET /api/v1/files?scope=${S.zone}&category=${S.path[0].cat}&path=${S.path.map(x => x.name).join('/')}`);
+    tg('BackButton.show()');
+    render();
+  },
+  crumb: a => { const i = +a; if (i < 0) { S.cat = S.path[0].cat; S.path = []; } else S.path = S.path.slice(0, i + 1); S.q = ''; render(); },
+  newfolder: () => {
+    const cat = S.path.length ? S.path[0].cat : (S.cat === 'Все' ? 'Документы' : S.cat);
+    const fo = { id: 'n' + Date.now(), name: 'Новая папка', cat, files: 0, size: '0 Б' };
+    if (S.path.length) { folderContents(curFolder()); INSIDE[curFolder().id].folders.unshift(fo); }
+    else { FOLDERS[S.zone].unshift(fo); if (S.cat === 'Все') S.cat = cat; }
+    tg(`POST /api/v1/folders {scope:"${S.zone}", category:"${cat}", path:"${S.path.map(x => x.name).join('/')}", name:"Новая папка"}`);
+    tg('HapticFeedback.notificationOccurred("success")');
+    render(); toast('Создана папка «Новая папка»');
+  },
+  unlock: () => { tg('POST /s/<token>/unlock → доступ на 1 час'); S.pubLocked = false; render(); },
+  pubzip: () => { tg('GET /s/<token>/zip — потоково, без сжатия'); toast('Браузер начнёт скачивание архива'); },
+  pubdl: a => { tg(`GET /s/<token>/download?path=${fileById(+a).name}`); toast('Браузер начнёт скачивание'); },
+  slash: () => { S.slash = !S.slash; if (S.slash) tg('Ввод «/» → команды из setMyCommands (scope: этот админ)'); render(); },
+  cmd: a => { S.slash = false; render(); toast(a === '/files' ? 'Бот ответит кнопкой «📂 Открыть файлы»' : `Отправлено: ${a}`); },
+  cat: a => { S.cat = a; S.path = []; S.view = (a === 'Фото' || a === 'Видео') ? 'grid' : S.view === 'grid' && a !== 'Все' ? 'list' : S.view; tg('HapticFeedback.selectionChanged()'); render(); },
+  view: a => { S.view = a; tg(`CloudStorage.setItem("view", "${a}")`); render(); },
+  select: () => { S.selecting = !S.selecting; S.sel.clear(); render(); },
+  pick: a => {
+    const id = +a;
+    if (S.selecting) { S.sel.has(id) ? S.sel.delete(id) : S.sel.add(id); tg('HapticFeedback.selectionChanged()'); $('#fileList').innerHTML = renderList(); setBottom(SCREENS.browse.main(), null); return; }
+    S.file = id; go('file');
+  },
+  open: a => openFile(+a),
+  dl: () => { const f = fileById(S.file); tg(`WebApp.downloadFile({url: "/d/…", file_name: "${f.name}"})`); toast('Telegram покажет диалог сохранения'); },
+  tochat: () => { tg('POST /api/v1/files/{id}/send-to-chat → бот'); toast('Отправлено вам в чат с ботом'); },
+  fav: () => { const f = fileById(S.file); f.fav = !f.fav; tg('HapticFeedback.impactOccurred("soft")'); render(); },
+  del: () => popup({ title: 'Переместить в корзину?', message: `«${fileById(S.file).name}» можно будет восстановить в течение 30 дней.`, buttons: [{ text: 'Отмена' }, { text: 'В корзину', type: 'destructive', on: () => { tg('DELETE /api/v1/files/{id} → корзина'); if (cur() !== 'browse') { S.stack = ['home', 'browse']; render(); } toast('Перемещено в корзину'); } }] }),
+  layer: (a, e) => { if (e.target.classList.contains('layer')) back(); },
+  shareTab: a => { S.shareTab = a; tg('HapticFeedback.selectionChanged()'); render(); },
+  expiry: a => { S.expiry = a; tg('HapticFeedback.selectionChanged()'); render(); },
+  flip: a => { S[a] = !S[a]; tg('HapticFeedback.selectionChanged()'); render(); },
+  limit: a => { S.limit = Math.max(0, Math.min(99, S.limit + +a)); render(); },
+  member: a => { S.members.has(a) ? S.members.delete(a) : S.members.add(a); render(); },
+  linksTab: a => { S.linksTab = a; render(); },
+  revoke: () => popup({ title: 'Отозвать ссылку?', message: 'Ссылка сразу перестанет работать у всех, кому её отправили.', buttons: [{ text: 'Отмена' }, { text: 'Отозвать', type: 'destructive', on: () => toast('Ссылка отозвана') }] }),
+  trashZone: a => { S.trashZone = a; render(); },
+  restore: a => { const z = S.trash[S.trashZone]; const t = z.find(x => x.id === a); S.trash[S.trashZone] = z.filter(x => x.id !== a); tg('POST /api/v1/trash/{id}/restore'); render(); toast(`Восстановлено: ${t.name} → ${t.cat}`); },
+  retry: a => { const u = S.uploads.find(x => x.id === a); u.state = 'up'; u.speed = 2.4; tg('GET /api/v1/uploads/{id} → offset 40 МБ, продолжаем'); render(); },
+  wrap: () => { S.wrap = !S.wrap; const ta = $('#edArea'); if (ta) ta.style.whiteSpace = S.wrap ? 'pre-wrap' : 'pre'; document.querySelector('[data-act="wrap"]')?.setAttribute('aria-pressed', S.wrap); },
+  linkMode: a => { S.linkMode = a; render(); },
+  chatSave: a => { S.chatStep = a === 'my' ? 1 : 2; tg(`CallbackQuery fm:save:p17:${a} → POST /internal/v1/files`); render(); },
+  openapp: () => { tg('Telegram открывает Mini App: initData + start_param'); nav('home'); },
+};
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-act]');
+  if (!t || !$('#phone').contains(t)) return;
+  const fn = ACTIONS[t.dataset.act];
+  if (fn) fn(t.dataset.arg, e);
+});
+
+/* ---------- upload simulation ---------- */
+setInterval(() => {
+  const up = S.uploads.find(u => u.state === 'up');
+  if (!up) return;
+  up.done = Math.min(up.total, up.done + 1);
+  up.speed = Math.round((2.6 + Math.random() * 1.2) * 10) / 10;
+  if (up.done >= up.total) {
+    up.state = 'ok';
+    tg(`POST /api/v1/uploads/{id}/complete → ${up.name}`);
+    tg('HapticFeedback.notificationOccurred("success")');
+    const next = S.uploads.find(u => u.state === 'wait');
+    if (next) { next.state = 'up'; next.total = 1; next.done = 0; next.speed = 2.8; }
+    if (cur() === 'uploads' || cur() === 'home') toast(`Загружено: ${up.name}`);
+  }
+  if (cur() === 'uploads' || cur() === 'home') {
+    const st = $('#content').scrollTop;
+    $('#content').innerHTML = SCREENS[cur()].render();
+    $('#content').scrollTop = st;
+    const t = $('#head .ht span'); if (t && cur() === 'uploads') t.textContent = SCREENS.uploads.sub;
+  }
+}, 1100);
+
+/* ---------- theme switch for the phone ---------- */
+document.querySelectorAll('[data-tgtheme]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-tgtheme]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  const v = b.dataset.tgtheme;
+  $('#phone').dataset.tg = v;
+  tg(v === 'auto' ? 'themeChanged → тема клиента' : `themeChanged → ${v === 'dark' ? 'тёмная' : 'светлая'} тема`);
+  if (cur() === 'share') drawQR();
+}));
+
+/* ---------- nav ---------- */
+const order = ['chat', 'link', 'home', 'browse', 'file', 'viewer', 'editor', 'uploads', 'share', 'links', 'public', 'trash', 'admin'];
+$('#nav').insertAdjacentHTML('beforeend', order.map(k => `<button type="button" data-screen="${k}"><span>${SCREENS[k].nav}</span><span class="stage-tag">${SCREENS[k].stage.replace('Этап ', 'Э')}</span></button>`).join(''));
+$('#nav').addEventListener('click', e => { const b = e.target.closest('button[data-screen]'); if (b) nav(b.dataset.screen); });
+
+tg('Telegram.WebApp.ready(); expand()');
+render();
+</script>
+
+</html>
