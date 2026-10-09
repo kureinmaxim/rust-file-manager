@@ -126,7 +126,7 @@ st=$SB/state
 code=000
 case $url in
   file://*) cp "${url#file://}" "$out"; exit $? ;;
-  http://127.0.0.1:8080/*) [[ -f $st/active-$RFM_UNIT ]] && code=200 ;;
+  http://127.0.0.1:80[0-9][0-9]/*) [[ -f $st/active-$RFM_UNIT ]] && code=200 ;;
   http://*:8091/internal/*)
     hdr=""; (( hstdin )) && hdr=$(cat)
     if [[ -f $st/active-$RFM_UNIT ]]; then
