@@ -1,6 +1,6 @@
 # Rust File Manager
 
-**Текущая версия:** 1.7.0 (07.10.2026)
+**Текущая версия:** 1.8.0 (09.10.2026)
 
 ## Что это
 
@@ -293,6 +293,19 @@ RUST_LOG=info
 ## Деплой на VPS
 
 Полная пошаговая инструкция (systemd + nginx + HTTPS + Cloudflare + многопользовательский режим) — в [DEPLOY.md](DEPLOY.md). Вместе с ботом TelegramOnly на одном VPS — [DEPLOYwTELEGRAM.md](DEPLOYwTELEGRAM.md) (с нуля) и [POST_DEPLOYwTELEGRAM.md](POST_DEPLOYwTELEGRAM.md) (обновление). Доступ через сеть Tailscale/Headscale — в [TAILSCALE.md](TAILSCALE.md).
+
+**Одной командой (с 1.8.0).** На сервере под root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kureinmaxim/rust-file-manager/main/deploy/rfm-vps.sh | bash -s -- setup
+deploy          # новый сервер: ставит недостающее — бота, файловый менеджер, связку
+post_deploy     # потом: обновляет то, что установлено
+```
+
+Команды сами определяют, что уже стоит на сервере. Подробности — в начале
+[DEPLOYwTELEGRAM.md](DEPLOYwTELEGRAM.md) и [POST_DEPLOYwTELEGRAM.md](POST_DEPLOYwTELEGRAM.md),
+скрипт — [deploy/rfm-vps.sh](deploy/rfm-vps.sh), его тесты в песочнице —
+`bash deploy/tests/rfm-vps.test.sh` (от root, без systemd, Docker и сети).
 
 Примеры конфигов лежат в [`deploy/`](deploy/):
 
