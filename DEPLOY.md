@@ -17,10 +17,11 @@
 ставят только файловый менеджер; Telegram-бот и мини-приложение по желанию
 подключаются отдельно ([раздел ниже](#telegram-бот-и-мини-приложение)).
 
-На минимальном сервере сначала:
+На минимальном сервере сначала нужен только curl (git, nginx, certbot и
+средства сборки `deploy` поставит сам):
 
 ```bash
-apt-get update && apt-get install -y curl ca-certificates git
+apt-get update && apt-get install -y curl ca-certificates
 ```
 
 Интерактивные команды вводите по одной: следующая строка не должна стать
@@ -35,9 +36,6 @@ apt-get update && apt-get install -y curl ca-certificates git
 ```bash
 curl -fsSL https://raw.githubusercontent.com/kureinmaxim/rust-file-manager/main/deploy/rfm-vps.sh | bash -s -- setup
 ```
-
-На минимальном Debian может не быть `curl`. Тогда сначала выполните
-`apt-get update && apt-get install -y curl`.
 
 `setup` ставит в `/usr/local/sbin`:
 
