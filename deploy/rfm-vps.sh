@@ -694,11 +694,26 @@ fm_install_fresh() {
 }
 
 # --- Бот ---------------------------------------------------------------------
+# Код бота: свой клон с GitHub. Если код уже доставлен без git (rsync по
+# TelegramOnly DEPLOY.md, вариант B), берём его как есть.
 bot_clone() {
   [[ -d $BOT_DIR/.git ]] && return 0
-  say "Репозиторий TelegramOnly приватный: на запрос Username введите логин GitHub,"
-  say "на запрос Password — токен GitHub с правом чтения этого репозитория"
-  git clone -q "$BOT_REPO_URL" "$BOT_DIR" || die "Не удалось скачать TelegramOnly"
+  if [[ -f $BOT_DIR/scripts/install_telegramonly_docker.sh ]]; then
+    warn "Код бота в $BOT_DIR без git — использую как есть; обновлять его post_deploy не сможет"
+    return 0
+  fi
+  if [[ -d $BOT_DIR && -n $(ls -A "$BOT_DIR" 2>/dev/null) ]]; then
+    die "Каталог $BOT_DIR не пустой, но это не код бота — разберите его вручную и запустите deploy снова"
+  fi
+  step "Бот TelegramOnly: скачивание кода"
+  if [[ $BOT_REPO_URL == https://* ]]; then
+    say "Репозиторий TelegramOnly приватный: на запрос Username введите логин GitHub,"
+    say "на запрос Password — токен GitHub с правом чтения этого репозитория"
+  fi
+  if ! git clone -q "$BOT_REPO_URL" "$BOT_DIR"; then
+    rm -rf -- "${BOT_DIR:?}/.git" 2>/dev/null
+    die "Не удалось скачать TelegramOnly ($BOT_REPO_URL). Проверьте токен; если на сервере есть SSH-ключ с доступом, запустите: BOT_REPO_URL=git@github.com:kureinmaxim/TelegramOnly.git deploy"
+  fi
   ok "код бота: $BOT_DIR, версия $(bot_repo_version)"
 }
 
@@ -714,9 +729,9 @@ bot_pin_compose_files() {  # бот в сети хоста: закрепить c
 }
 
 bot_install_fresh() {
+  bot_clone
   step "Бот TelegramOnly: установка"
   ensure_docker
-  bot_clone
   if [[ $BOT_NETWORK == host ]]; then
     [[ -f $BOT_DIR/.env ]] || cp "$BOT_DIR/example.env" "$BOT_DIR/.env"
     chmod 600 "$BOT_DIR/.env"
@@ -984,6 +999,9 @@ cmd_deploy() {
   fi
   INSTALLED_NOW=1
   install_packages
+  # Код бота — сразу после git: запрос токена GitHub и ошибка доступа видны в
+  # начале, до Docker и долгой сборки.
+  [[ $INSTALL_BOT == yes ]] && bot_clone
   step "Подготовка сервера"
   setup_sysctl
   setup_swap
