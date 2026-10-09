@@ -450,6 +450,25 @@ check "бот в сети хоста" test "$(cat "$SB/state/docker/net")" = hos
 check "ufw включён по умолчанию" has_line "$SB/calls.log" "ufw --force enable"
 check "в выводе нет пароля" no_secrets "$SB/o14"
 
+echo "15. На сервере нет ничего, а доступа к репозиторию бота нет"
+new_sandbox
+export BOT_REPO_URL="file://$SB/repos/no-such-repo.git"
+printf 'Secret-pass-1\nSecret-pass-1\n' |
+  RFM_DOMAIN=files.example.com HTTPS_MODE=certbot BOT_NETWORK=host ENABLE_UFW=no run "$SB/o15" deploy --yes; rc=$?
+check "deploy останавливается с ошибкой" test "$rc" -eq 1
+check "подсказывает про токен и SSH-ключ" has_line "$SB/o15" "BOT_REPO_URL=git@github.com:kureinmaxim/TelegramOnly.git deploy"
+check "останавливается до сборки файлового менеджера" test "$(count "$SB/calls.log" "cargo build")" -eq 0
+check "не оставляет пустой клон" test ! -e "$BOT_DIR/.git"
+
+echo "16. Код бота доставлен без git (rsync)"
+new_sandbox
+mkdir -p "$BOT_DIR" && cp -r "$SB/src/bot/." "$BOT_DIR/" && rm -rf "$BOT_DIR/.git"
+export BOT_REPO_URL="file://$SB/repos/no-such-repo.git"
+BOT_NETWORK=bridge ENABLE_UFW=no run "$SB/o16" deploy --yes --only bot; rc=$?
+check "deploy --only bot успешен" test "$rc" -eq 0
+check "предупреждает, что код без git" has_line "$SB/o16" "без git — использую как есть"
+check "установщик бота запущен из этого кода" has_line "$SB/o16" "fake installer done"
+
 echo
 echo "Пройдено: $PASS, ошибок: $FAILED"
 (( FAILED == 0 ))
