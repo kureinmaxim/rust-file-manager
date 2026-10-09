@@ -723,6 +723,41 @@ self_update() {
   RFM_VPS_REEXEC=1 exec "$cur" "$CMD" "${ORIG_ARGS[@]}"
 }
 
+# Сервер с клоном бота автора: команды сами переходят на полную версию
+# (бот и файловый менеджер) из этого клона, как только она там есть. Порядок
+# слияния репозиториев и ручной setup тогда не важны, бот не остаётся без
+# обновлений. Без клона (обычный пользователь) ничего не происходит.
+handover_to_full() {
+  local clone=${FULL_SCRIPT%/scripts/*} rel tmp
+  [[ ${RFM_VPS_HANDOVER:-} == 1 || $clone == "$FULL_SCRIPT" || ! -d $clone/.git ]] && return 0
+  rel=${FULL_SCRIPT#"$clone"/}
+  tmp=$(mktemp) || return 0
+  if [[ -f $FULL_SCRIPT ]]; then
+    cp "$FULL_SCRIPT" "$tmp"
+  else
+    # Приватный репозиторий: без запроса пароля; нет доступа — последняя полученная версия.
+    GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=${GIT_SSH_COMMAND:-ssh -o BatchMode=yes} \
+      timeout 30 git -C "$clone" fetch -q origin main 2>/dev/null
+    git -C "$clone" show "origin/main:$rel" >"$tmp" 2>/dev/null || : >"$tmp"
+  fi
+  if ! grep -q "$FULL_CMD" "$tmp" || ! bash -n "$tmp" 2>/dev/null; then
+    rm -f "$tmp"
+    warn "На сервере есть бот, а полной версии команд ($FULL_CMD) в его репозитории пока нет — обновляю только файловый менеджер"
+    SUMMARY+=("Бот: не обновлён — эта версия команд обслуживает только файловый менеджер")
+    TODO+=("Когда в репозитории бота появится $rel, запустите команду ещё раз: она перейдёт на полную версию сама")
+    return 0
+  fi
+  say "На сервере есть бот — перехожу на полную версию команд ($FULL_CMD: бот и файловый менеджер)"
+  if ! RFM_VPS_HANDOVER=1 bash "$tmp" setup; then
+    rm -f "$tmp"
+    warn "Полная версия команд не установилась — обновляю только файловый менеджер"
+    SUMMARY+=("Бот: не обновлён — полная версия команд не установилась (см. вывод выше)")
+    return 0
+  fi
+  rm -f "$tmp"
+  RFM_VPS_HANDOVER=1 exec "$CMD_DIR/$FULL_CMD" "$CMD" "${ORIG_ARGS[@]}"
+}
+
 # --- Команды -----------------------------------------------------------------
 cmd_setup() {
   local tmp src name target
@@ -833,6 +868,7 @@ cmd_deploy() {
   local rc=0
   preflight
   self_update
+  handover_to_full
   take_lock
   print_status
   deploy_questions
@@ -882,7 +918,7 @@ cmd_post_deploy() {
   local rc=0
   [[ $EUID -eq 0 ]] || die "Запустите от root: sudo -i, затем команду ещё раз"
   # Проверка не должна заменять установленные команды или перезапускать себя.
-  if (( ! CHECK_ONLY )); then self_update; take_lock; fi
+  if (( ! CHECK_ONLY )); then self_update; handover_to_full; take_lock; fi
   print_status
   if ! fm_present; then
     step "Файловый менеджер не установлен"

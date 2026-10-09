@@ -88,5 +88,42 @@ check 'ошибка архивации возвращается наружу' te
 check 'старая программа сохранена' test "$(sha256sum <"$RFM_BIN")" = "$before"
 check 'старая служба снова запущена' test -f "$SB/state/active-$RFM_UNIT"
 
+echo '8. Сервер с клоном бота: порядок слияния репозиториев не важен'
+new_sandbox
+printf 'Secret-pass-1\nSecret-pass-1\n' |
+  RFM_DOMAIN=files.example.com HTTPS_MODE=none ENABLE_UFW=no run "$SB/install" deploy --yes
+run "$SB/setup" setup
+clone=$SB/opt/TelegramOnly
+git init -q --bare -b main "$SB/repos/bot-origin.git"
+git init -q -b main "$clone"
+printf 'synthetic bot\n' >"$clone/README.md"
+git_commit_all "$clone" init && git -C "$clone" remote add origin "file://$SB/repos/bot-origin.git" && git -C "$clone" push -q origin main
+export FULL_SCRIPT=$clone/scripts/tgo-vps.sh
+bash "$CMD_DIR/post_deploy" --yes >"$SB/no-full" 2>&1; rc=$?
+check 'без полной версии FM всё равно обновляется' test "$rc" -eq 0
+check 'предупреждение, что бот не обновлён' has_line "$SB/no-full" 'полной версии команд (tgo-vps)'
+check 'ссылки остаются на публичной версии' test "$(readlink "$CMD_DIR/post_deploy")" = rfm-vps
+# Полная версия появилась в репозитории бота, клон на сервере ещё не обновлён.
+work=$SB/src/bot-work
+git clone -q "file://$SB/repos/bot-origin.git" "$work"
+mkdir -p "$work/scripts"
+cat >"$work/scripts/tgo-vps.sh" <<'EOF'
+#!/usr/bin/env bash
+# tgo-vps — synthetic full version for the handover test
+case $1 in
+  setup) install -m 755 "$0" "$CMD_DIR/tgo-vps"
+         for n in deploy post_deploy post-deploy; do ln -sfn tgo-vps "$CMD_DIR/$n"; done ;;
+  *) echo "FULL VERSION RAN $*" ;;
+esac
+EOF
+git_commit_all "$work" full && git -C "$work" push -q origin main
+bash "$CMD_DIR/post_deploy" --yes >"$SB/handover" 2>&1; rc=$?
+check 'переход на полную версию успешен' test "$rc" -eq 0
+check 'переход объяснён' has_line "$SB/handover" 'перехожу на полную версию команд'
+check 'дальше работает полная версия с теми же параметрами' has_line "$SB/handover" 'FULL VERSION RAN post_deploy --yes'
+check 'deploy теперь — полная версия' test "$(readlink "$CMD_DIR/deploy")" = tgo-vps
+check 'клон бота не изменён публичной командой' test ! -e "$FULL_SCRIPT"
+unset FULL_SCRIPT
+
 printf '\nПройдено: %s, ошибок: %s\n' "$PASS" "$FAILED"
 (( FAILED == 0 ))
