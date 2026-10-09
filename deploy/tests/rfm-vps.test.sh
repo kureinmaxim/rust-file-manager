@@ -384,10 +384,10 @@ check "команда post_deploy" test -L "$CMD_DIR/post_deploy"
 "$CMD_DIR/deploy" --help >"$SB/o10h" 2>&1
 check "deploy --help по имени команды" has_line "$SB/o10h" "post_deploy [--check]"
 printf '\n# новая версия\n' >>"$SB/raw/main/deploy/rfm-vps.sh"
-"$CMD_DIR/post_deploy" --check >"$SB/o10u" 2>&1
+"$CMD_DIR/post_deploy" --yes >"$SB/o10u" 2>&1
 check "post_deploy обновил команды перед работой" has_line "$SB/o10u" "Команды deploy/post_deploy обновлены"
 check "установлена новая версия" cmp -s "$CMD_DIR/rfm-vps" "$SB/raw/main/deploy/rfm-vps.sh"
-check "после перезапуска работа продолжилась" has_line "$SB/o10u" "Доступные обновления"
+check "после перезапуска работа продолжилась" has_line "$SB/o10u" "План обновления"
 "$CMD_DIR/post_deploy" --check >"$SB/o10v" 2>&1
 check "повторно не обновляет" no_line "$SB/o10v" "обновлены"
 

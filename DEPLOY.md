@@ -1,5 +1,9 @@
 # Развёртывание на VPS
 
+Простой выбор действий для пустого или работающего VPS, одного или двух
+проектов — [DEPLOY_ALGORITHM.md](DEPLOY_ALGORITHM.md). Общие интерактивные
+команды — [DEPLOYnew.md](DEPLOYnew.md).
+
 Проверено для версии **1.3.0** 06.10.2026 по коду, `Cargo.lock` и документации
 Cargo, nginx и Cloudflare. Команды рассчитаны на **Linux Ubuntu/Debian с
 systemd**, Bash и доступом root или sudo.
