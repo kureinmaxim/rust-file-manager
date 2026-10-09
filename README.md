@@ -302,7 +302,8 @@ deploy          # новый сервер: ставит недостающее �
 post_deploy     # потом: обновляет то, что установлено
 ```
 
-Команды сами определяют, что уже стоит на сервере. Подробности — в начале
+Команды сами определяют, что уже стоит на сервере. Справочник по командам —
+[DEPLOYnew.md](DEPLOYnew.md); пошагово — в начале
 [DEPLOYwTELEGRAM.md](DEPLOYwTELEGRAM.md) и [POST_DEPLOYwTELEGRAM.md](POST_DEPLOYwTELEGRAM.md),
 скрипт — [deploy/rfm-vps.sh](deploy/rfm-vps.sh), его тесты в песочнице —
 `bash deploy/tests/rfm-vps.test.sh` (от root, без systemd, Docker и сети).

@@ -64,6 +64,8 @@ RFM_DOMAIN=files.example.com HTTPS_MODE=certbot BOT_NETWORK=bridge ENABLE_UFW=ye
 ```
 
 Обновлять потом — командой `post_deploy` ([POST_DEPLOYwTELEGRAM.md](POST_DEPLOYwTELEGRAM.md)).
+Все вопросы, параметры, файлы и сообщения команд собраны в справочнике
+[DEPLOYnew.md](DEPLOYnew.md).
 Ниже те же шаги вручную: по ним видно, что делает команда, и по ним можно
 пройти без неё.
 

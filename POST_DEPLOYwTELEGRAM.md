@@ -54,7 +54,8 @@ curl -fsSL https://raw.githubusercontent.com/kureinmaxim/rust-file-manager/main/
 | `post_deploy --force` | пересобрать и перезапустить, даже если версия та же |
 | `rfm-vps status` | что стоит на сервере, только чтение |
 
-Ниже те же шаги вручную.
+Полный справочник по командам — [DEPLOYnew.md](DEPLOYnew.md). Ниже те же шаги
+вручную.
 
 ## Как пользоваться
 
