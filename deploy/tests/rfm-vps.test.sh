@@ -98,6 +98,7 @@ case ${1:-} in
   restart|start) start_unit "$2" ;;
   stop) rm -f "$st/active-$2" ;;
   enable) [[ ${2:-} == --now ]] && start_unit "$3"; exit 0 ;;
+  show) [[ -f $st/workdir ]] && cat "$st/workdir"; exit 0 ;;
   *) exit 0 ;;
 esac'
   stub journalctl '
@@ -117,6 +118,8 @@ case ${1:-} in
       *NetworkMode*) cat "$d/net" ;;
       *config_files*) cat "$d/label" ;;
       *Gateway*) [[ $(cat "$d/net") == host ]] || echo 172.18.0.1 ;;
+      *State.Running*) cat "$d/running" 2>/dev/null || echo true ;;
+      *working_dir*) cat "$d/workdir" 2>/dev/null ;;
     esac ;;
   exec) printf "version = \"%s\"\n" "$(cat "$d/version")" ;;
   compose) case ${2:-} in version) echo "Docker Compose version v2.29.0" ;; up) echo up >>"$d/recreated" ;; esac ;;

@@ -309,7 +309,8 @@ curl -fsSL https://raw.githubusercontent.com/kureinmaxim/rust-file-manager/main/
 либо `post_deploy` для обновления. Команды задают вопросы и сами определяют,
 что уже стоит на сервере. Не вставляйте следующую команду в ответ установщику.
 Скрипт — [deploy/rfm-vps.sh](deploy/rfm-vps.sh), его тесты в песочнице —
-`bash deploy/tests/rfm-vps.test.sh` (от root, без systemd, Docker и сети).
+`bash deploy/tests/rfm-vps.test.sh` (от root, без systemd, Docker и сети);
+сценарий сервера с VPN-протоколами — `bash deploy/tests/rfm-vps-vpn.test.sh`.
 
 Примеры конфигов лежат в [`deploy/`](deploy/):
 

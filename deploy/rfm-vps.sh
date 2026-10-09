@@ -29,6 +29,7 @@ set -uo pipefail
 : "${RFM_ENV:=/etc/rust-file-manager/env}"
 : "${RFM_DATA:=/var/lib/rust-file-manager}"
 : "${RFM_BACKUPS:=/var/backups/rust-file-manager}"
+BOT_DIR_PINNED=${BOT_DIR:+1}  # задан явно — не искать каталог работающего бота
 : "${BOT_DIR:=/opt/TelegramOnly}"
 : "${BOT_BACKUPS:=/var/backups/telegramonly}"
 : "${BOT_CONTAINER:=telegram-helper-lite}"
@@ -46,6 +47,7 @@ set -uo pipefail
 : "${CARGO_ENV:=$HOME/.cargo/env}"
 : "${FM_USER:=filemgr}"
 : "${FSTAB:=/etc/fstab}"
+: "${MEMINFO:=/proc/meminfo}"
 : "${POLL_SECONDS:=15}"      # как часто показывать ход сборки
 : "${WAIT_SECONDS:=5}"       # пауза при ожидании запуска бота
 
@@ -193,12 +195,43 @@ prune_backups() {  # каталог шаблон
 
 http_code() { curl -sS -o /dev/null -w '%{http_code}' --max-time "${2:-10}" "$1" 2>/dev/null || true; }
 
+# Порты, которые службы сервера слушают не только на loopback: строки
+# «порт/tcp|udp процесс». VPN (Xray, Hysteria2, NaiveProxy, Mieru, MTProto…)
+# должен остаться доступным, если deploy включает ufw. DHCP-клиент не нужен.
+public_listeners() {
+  ss -H -tulpn 2>/dev/null | awk '
+    { addr = $5; port = $5; sub(/:[^:]*$/, "", addr); sub(/.*:/, "", port)
+      if (port !~ /^[0-9]+$/ || addr ~ /^(127\.|\[::1\]|::1$|\[::ffff:127\.)/) next
+      proto = ($1 ~ /^udp/) ? "udp" : "tcp"
+      if (proto == "udp" && (port == 68 || port == 546)) next
+      name = $7; sub(/^users:\(\("/, "", name); sub(/".*/, "", name)
+      print port "/" proto, (name == "" ? "?" : name) }' | sort -u
+}
+
+# Имя процесса, который слушает TCP-порт на любом адресе; пусто — порт свободен.
+port_owner() {
+  ss -H -tlnp 2>/dev/null | awk -v p="$1" '
+    { port = $4; sub(/.*:/, "", port)
+      if (port == p) { name = $6; sub(/^users:\(\("/, "", name); sub(/".*/, "", name)
+                       print (name == "" ? "?" : name); exit } }'
+}
+
 # --- Что стоит на сервере ----------------------------------------------------
 unit_exists() { systemctl cat "$1" >/dev/null 2>&1; }
 fm_present() { [[ -x $RFM_BIN ]] || unit_exists "$RFM_UNIT"; }
 
+bot_running_both() {
+  has docker && [[ $(docker inspect -f '{{.State.Running}}' "$BOT_CONTAINER" 2>/dev/null) == true ]] &&
+    unit_exists "$BOT_UNIT" && systemctl is-active --quiet "$BOT_UNIT"
+}
+
 bot_flavor() {  # docker | systemd | cloned | none
-  if has docker && docker inspect "$BOT_CONTAINER" >/dev/null 2>&1; then echo docker
+  if has docker && docker inspect "$BOT_CONTAINER" >/dev/null 2>&1; then
+    # Остановленный прежний контейнер не главнее работающей systemd-службы:
+    # иначе обновление запустило бы второго бота с тем же токеном.
+    if [[ $(docker inspect -f '{{.State.Running}}' "$BOT_CONTAINER" 2>/dev/null) == false ]] &&
+      unit_exists "$BOT_UNIT" && systemctl is-active --quiet "$BOT_UNIT"; then echo systemd
+    else echo docker; fi
   elif unit_exists "$BOT_UNIT"; then echo systemd
   elif [[ -d $BOT_DIR/.git ]]; then echo cloned
   else echo none; fi
@@ -233,6 +266,22 @@ bot_running_version() {
   esac
 }
 bot_linked() { env_has "$BOT_DIR/.env" FILES_SERVICE_TOKEN && env_has "$BOT_DIR/.env" FILES_INTERNAL_URL; }
+
+# Каталог установленного бота: ярлык compose у контейнера или WorkingDirectory
+# systemd-службы. Иначе обновился бы другой клон, а итог показал бы его версию.
+# Явно заданный BOT_DIR не меняется.
+bot_dir_detect() {
+  local d=''
+  [[ -z $BOT_DIR_PINNED ]] || return 0
+  case $(bot_flavor) in
+    docker) d=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$BOT_CONTAINER" 2>/dev/null) ;;
+    systemd) d=$(systemctl show -p WorkingDirectory --value "$BOT_UNIT" 2>/dev/null) ;;
+  esac
+  d=${d#-}
+  [[ -n $d && $d != "$BOT_DIR" && -f $d/pyproject.toml ]] || return 0
+  BOT_DIR=$d
+  say "Бот установлен в $BOT_DIR — использую этот каталог"
+}
 
 fm_build_dir() {
   local d
@@ -278,6 +327,9 @@ print_status() {
     cloned) say "Бот TelegramOnly: код в $BOT_DIR есть, но бот не установлен" ;;
     none)   say "Бот TelegramOnly: не установлен" ;;
   esac
+  if bot_running_both; then
+    warn "Работают два бота: контейнер $BOT_CONTAINER и служба $BOT_UNIT. Остановите лишний — обновляется контейнер"
+  fi
 }
 
 # --- Общая подготовка (только deploy) ----------------------------------------
@@ -294,8 +346,13 @@ take_lock() {
 }
 
 install_packages() {
-  local pkgs=(git curl ca-certificates openssl build-essential pkg-config socat nginx ufw)
+  local pkgs=(git curl ca-certificates openssl socat)
+  # nginx занимает порт 80 сразу после установки: ставим его, только если он
+  # нужен файловому менеджеру, — бот на VPN-сервере его не требует.
+  [[ $INSTALL_FM == yes ]] && pkgs+=(build-essential pkg-config)
+  { [[ $INSTALL_FM == yes ]] || fm_present; } && [[ $HTTPS_MODE == certbot || $HTTPS_MODE == cloudflare ]] && pkgs+=(nginx)
   [[ $HTTPS_MODE == certbot ]] && pkgs+=(certbot python3-certbot-nginx)
+  [[ $ENABLE_UFW == yes ]] && pkgs+=(ufw)
   step "Системные пакеты"
   DEBIAN_FRONTEND=noninteractive apt-get update -q >/dev/null || die "apt-get update не прошёл"
   DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${pkgs[@]}" >/dev/null || die "Не удалось поставить пакеты: ${pkgs[*]}"
@@ -311,20 +368,39 @@ setup_sysctl() {
   sysctl -q -p "$SYSCTL_FILE" >/dev/null 2>&1 && ok "MTU probing включён ($SYSCTL_FILE)" || warn "sysctl не применился"
 }
 
+mem_mb() { awk '/MemTotal/ {print int($2/1024)}' "$MEMINFO"; }
+# Нет swap, а памяти мало: сборка Rust может вызвать OOM и задеть VPN-службы.
+swap_needed() { [[ -z $(swapon --show 2>/dev/null) ]] && (( $(mem_mb) < 3500 )); }
+
 setup_swap() {
-  local mem_mb
+  local avail_mb
   [[ -n $(swapon --show 2>/dev/null) ]] && { ok "swap уже есть"; return; }
-  mem_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
-  (( mem_mb >= 3500 )) && return
-  say "Памяти ${mem_mb} МБ — создаю swap 2 ГБ, без него сборка Rust может упасть"
-  { fallocate -l 2G "$SWAP_FILE" 2>/dev/null || dd if=/dev/zero of="$SWAP_FILE" bs=1M count=2048 status=none; } &&
-    chmod 600 "$SWAP_FILE" && mkswap -q "$SWAP_FILE" >/dev/null && swapon "$SWAP_FILE" &&
-    { grep -q "^$SWAP_FILE " "$FSTAB" || echo "$SWAP_FILE none swap sw 0 0" >>"$FSTAB"; } &&
-    ok "swap 2 ГБ" || warn "swap создать не удалось"
+  swap_needed || return 0
+  if [[ -e $SWAP_FILE ]]; then
+    warn "$SWAP_FILE уже есть, но swap не включён — не трогаю его; сборке может не хватить памяти"
+    return 0
+  fi
+  # Заполненный диск остановил бы Docker, журналы и VPN-службы.
+  avail_mb=$(df -Pm "$(dirname "$SWAP_FILE")" 2>/dev/null | awk 'NR == 2 {print $4}')
+  if [[ ! $avail_mb =~ ^[0-9]+$ ]] || (( avail_mb < 3072 )); then
+    warn "Свободно меньше 3 ГБ на диске — swap не создаю; сборке может не хватить памяти"
+    return 0
+  fi
+  say "Памяти $(mem_mb) МБ — создаю swap 2 ГБ, без него сборка Rust может упасть"
+  if { fallocate -l 2G "$SWAP_FILE" 2>/dev/null || dd if=/dev/zero of="$SWAP_FILE" bs=1M count=2048 status=none; } &&
+    chmod 600 "$SWAP_FILE" && mkswap -q "$SWAP_FILE" >/dev/null && swapon "$SWAP_FILE"; then
+    grep -q "^$SWAP_FILE " "$FSTAB" || echo "$SWAP_FILE none swap sw 0 0" >>"$FSTAB"
+    ok "swap 2 ГБ"
+  else
+    swapoff "$SWAP_FILE" 2>/dev/null
+    rm -f -- "$SWAP_FILE"
+    warn "swap создать не удалось — недописанный файл удалён"
+  fi
 }
 
 setup_firewall() {
-  local port web=0 https_port=443
+  local port web=0 https_port=443 spec
+  local -a kept=()
   has ufw || return 0
   [[ $HTTPS_MODE == cloudflare ]] && https_port=2083
   { [[ $INSTALL_FM == yes ]] || fm_present; } && [[ $HTTPS_MODE != none ]] && web=1
@@ -343,8 +419,15 @@ setup_firewall() {
   fi
   ufw allow "$port/tcp" >/dev/null || { warn "ufw: не удалось открыть SSH — файрвол не включаю"; return; }
   if (( web )); then ufw allow 80/tcp >/dev/null; ufw allow "$https_port/tcp" >/dev/null; fi
+  # Уже работающие службы (VPN и др.) не должны оказаться за новым файрволом.
+  while read -r spec _; do
+    ufw allow "$spec" >/dev/null || { warn "ufw: не удалось разрешить $spec — файрвол не включаю"; return; }
+    kept+=("$spec")
+  done < <(public_listeners)
   ufw --force enable >/dev/null && ok "ufw включён: SSH $port$( (( web )) && echo ", 80, $https_port")" ||
-    warn "ufw включить не удалось"
+    { warn "ufw включить не удалось"; return; }
+  (( ${#kept[@]} )) && ok "ufw: сохранён доступ к работающим службам: ${kept[*]}"
+  return 0
 }
 
 ensure_docker() {
@@ -709,6 +792,8 @@ fm_update() {
     SUMMARY+=("Файловый менеджер: без изменений, $(fm_version)")
     return 0
   fi
+  # Как deploy: на маленьком VPS без swap сборка может вызвать OOM у VPN-служб.
+  setup_swap
   fm_build "$dir" || return 1
   if cmp -s "$dir/target/release/rust-file-manager" "$RFM_BIN" && (( ! FORCE )) && systemctl is-active --quiet "$RFM_UNIT"; then
     ok "собранная программа совпадает с установленной"
@@ -1041,13 +1126,40 @@ EOF
 }
 
 cmd_status() {
+  bot_dir_detect
   print_status
   [[ -f $STATE_FILE ]] && say "настройки команд: $STATE_FILE"
   return 0
 }
 
+# Порты нового файлового менеджера и его nginx. Занятые VPN-службами (Xray,
+# XHTTP на 8080, 3x-ui, NaiveProxy…) порты команда не отбирает: останавливается
+# до установки пакетов и долгой сборки.
+fm_ports_check() {
+  local p owner
+  for p in 8080 8091; do
+    owner=$(port_owner "$p")
+    [[ -z $owner ]] || die "Порт $p занят ($owner), а файловый менеджер слушает 127.0.0.1:$p. Освободите порт или установите FM вручную (DEPLOY.md)"
+  done
+  case $HTTPS_MODE in
+    certbot)
+      for p in 80 443; do
+        owner=$(port_owner "$p")
+        [[ -z $owner || $owner == nginx ]] ||
+          die "Порт $p занят ($owner) — certbot через nginx не подойдёт. Выберите HTTPS_MODE=cloudflare или none"
+      done ;;
+    cloudflare)
+      owner=$(port_owner 2083)
+      [[ -z $owner || $owner == nginx ]] || die "Порт 2083 занят ($owner) — выберите HTTPS_MODE=none и свой прокси"
+      owner=$(port_owner 80)
+      if ! has nginx && [[ -n $owner ]]; then
+        die "Порт 80 занят ($owner): новый nginx не запустится. Освободите порт или выберите HTTPS_MODE=none"
+      fi ;;
+  esac
+}
+
 deploy_questions() {
-  local busy443='' target=''
+  local busy443='' target='' others=''
   step "Вопросы (дальше установка пойдёт сама)"
   # Новые вопросы только в терминале: сохраняем сценарии с ответами через stdin.
   if [[ -z $ONLY && -z $INSTALL_BOT && -z $INSTALL_FM ]] && ! bot_present && ! fm_present && [[ -t 0 ]] && (( ! ASSUME_YES )); then
@@ -1081,18 +1193,28 @@ deploy_questions() {
     if [[ -n $busy443 ]]; then say "Порт 443 уже занят другим сервисом — подойдёт Cloudflare на порт 2083"; fi
     ask_choice HTTPS_MODE "HTTPS: certbot — 443 свободен; cloudflare — через Cloudflare на 2083; none — свой прокси" \
       "$([[ -n $busy443 ]] && echo cloudflare || echo certbot)" "certbot cloudflare none"
+    fm_ports_check
     [[ $HTTPS_MODE == certbot ]] && ask LE_EMAIL "Почта для Let's Encrypt (Enter — без почты)" ""
     ask RFM_ADMIN_LOGIN "Логин администратора сайта" admin
     [[ -e $RFM_ENV ]] || ask_password
   fi
   if [[ -z $ENABLE_UFW ]] && has ufw && ! ufw status 2>/dev/null | grep -q 'Status: active'; then
-    if confirm "Включить файрвол ufw (SSH, 80 и порт HTTPS)?" y; then ENABLE_UFW=yes; else ENABLE_UFW=no; fi
+    others=$(public_listeners | awk '$2 != "sshd" {printf "%s%s(%s)", sep, $1, $2; sep = " "}')
+    if [[ -n $others ]]; then
+      # Рабочий VPN-сервер: файрвол только по явному согласию, --yes его не включает.
+      say "ufw выключен, а на сервере уже работают службы: $others"
+      say "Если включить ufw, эти порты останутся открыты; службы, которые сейчас остановлены, закроются"
+      if confirm "Включить ufw?" n; then ENABLE_UFW=yes; else ENABLE_UFW=no; fi
+    elif confirm "Включить файрвол ufw (SSH, 80 и порт HTTPS)?" y; then ENABLE_UFW=yes; else ENABLE_UFW=no; fi
   fi
   step "План"
   [[ $INSTALL_BOT == yes ]] && say "• бот TelegramOnly в Docker, сеть $BOT_NETWORK"
   [[ $INSTALL_FM == yes ]] && say "• файловый менеджер на https://$RFM_DOMAIN, HTTPS: $HTTPS_MODE, логин $RFM_ADMIN_LOGIN"
   if { bot_present || [[ $INSTALL_BOT == yes ]]; } && { fm_present || [[ $INSTALL_FM == yes ]]; }; then
     say "• связать бота с файловым менеджером (мини-приложение «Файлы», уведомления)"
+  fi
+  if [[ $ENABLE_UFW == yes ]] && ! ufw status 2>/dev/null | grep -q 'Status: active'; then
+    say "• включить ufw: SSH, порты сайта и уже работающих служб"
   fi
   confirm "Начинаем?" y || die "Отменено"
 }
@@ -1102,6 +1224,7 @@ cmd_deploy() {
   preflight
   self_update
   take_lock
+  bot_dir_detect
   print_status
   deploy_questions
   [[ -n $HTTPS_MODE ]] || HTTPS_MODE=$(state_get HTTPS_MODE)
@@ -1151,6 +1274,9 @@ post_deploy_questions() {
     fi
   fi
   fm_present && [[ $ONLY != bot ]] && say "• файловый менеджер: ${RFM_REF:-$(state_get RFM_REF)} (пустое значение = main); копия старой программы и проверка с откатом"
+  if fm_present && [[ $ONLY != bot ]] && swap_needed; then
+    say "• если понадобится сборка: swap 2 ГБ (памяти $(mem_mb) МБ, swap нет), при свободных 3 ГБ на диске"
+  fi
   bot_present && [[ $ONLY != fm ]] && say "• бот: main; сохранить текущую сеть и пересобрать только бота"
   if [[ -t 0 ]] && (( ! ASSUME_YES )); then
     confirm "Обновляем по этому плану?" y || die "Отменено"
@@ -1162,6 +1288,7 @@ cmd_post_deploy() {
   [[ $EUID -eq 0 ]] || die "Запустите от root: sudo -i, затем команду ещё раз"
   # Проверка не должна заменять установленные команды или перезапускать себя.
   if (( ! CHECK_ONLY )); then self_update; take_lock; fi
+  bot_dir_detect
   print_status
   fm_present && any=1
   bot_present && any=1
