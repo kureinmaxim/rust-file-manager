@@ -28,6 +28,7 @@ async function postPublic(path, json) {
   try {
     res = await fetch(`/api/v1${path}`, {
       method: 'POST',
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ init_data: initData(), ...json }),
     });
@@ -71,7 +72,8 @@ export async function api(path, { method = 'GET', json, retry = true } = {}) {
   }
   let res;
   try {
-    res = await fetch(`/api/v1${path}`, { method, headers, body });
+    // Always ask the API: an old nginx 301 may still be in the WebView cache.
+    res = await fetch(`/api/v1${path}`, { method, headers, body, cache: 'no-store' });
   } catch {
     throw new ApiError('Нет связи с сервером. Проверьте интернет и повторите.', 0, 'network');
   }

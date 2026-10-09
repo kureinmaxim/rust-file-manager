@@ -143,7 +143,11 @@ struct CreateBody {
     with: String,
 }
 
+// Older nginx configurations redirected this URL and WebViews may cache it.
+// Both paths stay inside the same authenticated API scope.
+#[actix_web::routes]
 #[post("/uploads")]
+#[post("/uploads/")]
 async fn create(
     body: web::Json<CreateBody>,
     user: web::ReqData<ApiUser>,
@@ -224,7 +228,9 @@ async fn create(
 
 /// Unfinished uploads of this user — the app matches them by name and size
 /// to resume when the same file is picked again.
+#[actix_web::routes]
 #[get("/uploads")]
+#[get("/uploads/")]
 async fn list(user: web::ReqData<ApiUser>, config: web::Data<AppConfig>) -> HttpResponse {
     let dir = user_dir(&config, &user.username);
     let uploads: Vec<_> = fs::read_dir(&dir)

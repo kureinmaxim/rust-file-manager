@@ -554,6 +554,49 @@ fm_restart_checked() {  # [ожидаемый_коммит]
   fm_health "$t0" "${1:-}"
 }
 
+fm_nginx_uploads() {
+  local site enabled saved='' found=0 rc=0 restore_rc=0 i copy
+  local -a sites=() copies=()
+  [[ ${HTTPS_MODE:-$(state_get HTTPS_MODE)} != none ]] || return 0
+  # Only our enabled sites; keep certificates and all other proxy settings.
+  for site in "$NGINX_DIR/sites-available/rust-file-manager" "$NGINX_DIR/sites-available/rust-file-manager-ssl"; do
+    enabled=$NGINX_DIR/sites-enabled/${site##*/}
+    [[ -f $site && $site -ef $enabled ]] || continue
+    grep -qE '^[[:space:]]*location[[:space:]]+/api/v1/uploads/?[[:space:]]*\{' "$site" || continue
+    found=1
+    if grep -qE '^[[:space:]]*location[[:space:]]+/api/v1/uploads/[[:space:]]*\{' "$site"; then
+      [[ -n $saved ]] || saved=$(mktemp -d "$NGINX_DIR/.rfm-uploads.XXXXXX") || return 1
+      copy=$saved/${site##*/}
+      cp -p "$site" "$copy" || { rm -f -- "$copy"; rc=1; break; }
+      copies+=("$copy"); sites+=("$site")
+      # A slash here makes nginx redirect /uploads to an API route that did not exist.
+      sed -i -E 's@^([[:space:]]*location[[:space:]]+)/api/v1/uploads/([[:space:]]*\{)@\1/api/v1/uploads\2@' "$site" || { rc=1; break; }
+    fi
+  done
+  (( found )) || return 0
+  # Reload even after a manual edit: changing a file alone does not update nginx.
+  if (( ! rc )); then
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx || rc=1
+  fi
+  if (( rc )); then
+    for i in "${!sites[@]}"; do
+      cp -p "${copies[$i]}" "${sites[$i]}" || restore_rc=1
+    done
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || restore_rc=1
+    if (( restore_rc )); then
+      fail "nginx: исправление загрузок не применено; проверьте конфигурацию и службу nginx"
+    else
+      fail "nginx: исправление загрузок не применено; прежняя конфигурация восстановлена"
+    fi
+  else
+    ok "nginx: маршрут загрузок проверен, конфигурация применена"
+  fi
+  if [[ -n $saved ]]; then
+    rm -f -- "${copies[@]}"; rmdir "$saved"
+  fi
+  return "$rc"
+}
+
 fm_nginx() {
   local site_dir=$NGINX_DIR/sites-available en_dir=$NGINX_DIR/sites-enabled domain=$RFM_DOMAIN example
   [[ -n $domain ]] || domain=$(env_get "$RFM_ENV" PUBLIC_BASE_URL | sed 's#^https\?://##; s#/.*##')
@@ -566,7 +609,8 @@ fm_nginx() {
       return 0 ;;
   esac
   if grep -RqsE "server_name[^;]*[[:space:]]${domain}[[:space:];]" "$en_dir"/ 2>/dev/null; then
-    ok "nginx уже обслуживает $domain — конфигурацию не трогаю"
+    fm_nginx_uploads || return 1
+    ok "nginx уже обслуживает $domain — настройки HTTPS сохранены"
   elif [[ $HTTPS_MODE == certbot ]]; then
     example=$(fm_build_dir)/deploy/nginx.example.conf
     sed -e "s/server_name example\.com;/server_name $domain;/" \
@@ -611,7 +655,8 @@ server {
     client_max_body_size 201M;
 
     # Мини-приложение: части загрузки идут сразу в приложение, без буфера на диске
-    location /api/v1/uploads/ {
+    # Без слеша: GET/POST коллекции /uploads должны идти в API без редиректа.
+    location /api/v1/uploads {
         client_max_body_size 10M;
         proxy_request_buffering off;
         proxy_pass http://127.0.0.1:8080;
@@ -1125,10 +1170,12 @@ cmd_post_deploy() {
   post_deploy_questions
   # Сначала файловый менеджер, потом бот: новые функции бота опираются на API
   # файлового менеджера, а две сборки сразу на маленьком VPS опасны.
-  if fm_present && [[ $ONLY != bot ]]; then fm_update || rc=1; fi
+  if fm_present && [[ $ONLY != bot ]]; then
+    fm_update && fm_nginx_uploads || rc=1
+  fi
   if bot_present && [[ $ONLY != fm ]]; then
     if (( rc )); then
-      warn "Файловый менеджер не обновился — зависимое обновление бота пропущено"
+      warn "Файловый менеджер или nginx не прошли проверку — зависимое обновление бота пропущено"
       SUMMARY+=("Бот: пропущен после ошибки файлового менеджера")
     elif [[ -d $BOT_DIR/.git ]]; then
       bot_update || rc=1

@@ -17,6 +17,8 @@ mod reply;
 mod storage;
 mod tg_auth;
 mod tokens;
+#[cfg(test)]
+mod upload_routes_tests;
 mod uploads;
 mod users;
 
