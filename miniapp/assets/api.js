@@ -4,7 +4,7 @@
 import { initData } from './tg.js';
 
 let token = null;
-let current = { user: null, limits: null, version: '' };
+let current = { user: null, limits: null, version: '', features: {} };
 
 export class ApiError extends Error {
   constructor(message, status = 0, code = '', body = null) {
@@ -20,7 +20,7 @@ export const authHeader = () => (token ? { Authorization: `Bearer ${token}` } : 
 
 function remember(body) {
   token = body.access_token;
-  current = { user: body.user, limits: body.limits, version: body.version };
+  current = { user: body.user, limits: body.limits, version: body.version, features: body.features || {} };
 }
 
 async function postPublic(path, json) {

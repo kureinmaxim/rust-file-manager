@@ -1,4 +1,4 @@
-//! Internal API for the TelegramOnly bot.
+//! Internal API for the companion Telegram bot (TelegramOnly).
 //!
 //! Served on a separate listener (`INTERNAL_BIND_ADDR`, normally
 //! 127.0.0.1:8091) that nginx never proxies; the bot reaches it through a
@@ -41,7 +41,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(post_invite)
             .service(post_bind)
             .service(post_unbind)
-            .service(get_events),
+            .service(get_events)
+            .configure(crate::chat::configure_internal),
     );
 }
 
