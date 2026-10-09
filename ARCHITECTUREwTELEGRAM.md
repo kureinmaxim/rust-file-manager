@@ -66,7 +66,8 @@
 | nginx | служба systemd `nginx` | системный пакет | `/etc/nginx/sites-available/…`, сертификаты в `/etc/nginx/ssl/` или `/etc/letsencrypt/` | — | `/var/log/nginx/` |
 | Мост socat (только если бот в сети bridge) | служба `rfm-internal-bridge` | `/usr/bin/socat` | `/etc/systemd/system/rfm-internal-bridge.service` | — | `journalctl -u rfm-internal-bridge` |
 | Сборка файлового менеджера | не работает постоянно | `/root/rfm-build` (исходники и `target/`) | — | — | `/root/rfm-build.log` |
-| Резервные копии | — | — | — | `/var/backups/rust-file-manager/` | — |
+| Команды `deploy`, `post_deploy`, `rfm-vps` (с 1.8.0) | запускаются вручную | `/usr/local/sbin/rfm-vps`; `deploy` и `post_deploy` — ссылки на него | `/etc/rfm-vps.conf`: каталог сборки, ветка или тег, способ HTTPS. Без секретов | — | на экран |
+| Резервные копии | — | — | — | `/var/backups/rust-file-manager/` (программа и `env`), `/var/backups/telegramonly/` (`.env` бота); последние три каждого вида, каталоги `700` | — |
 
 Для работы файлового менеджера каталог сборки не нужен: он нужен только для
 следующего обновления.
