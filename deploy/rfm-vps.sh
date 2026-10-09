@@ -41,6 +41,7 @@ set -uo pipefail
 : "${FSTAB:=/etc/fstab}"
 : "${MEMINFO:=/proc/meminfo}"
 : "${POLL_SECONDS:=15}"      # как часто показывать ход сборки
+: "${WAIT_SECONDS:=5}"       # пауза перед повторной проверкой служб
 # Полная версия этих команд (вместе с ботом) ставится из другого репозитория
 # под именем tgo-vps; эта версия её не заменяет.
 : "${FULL_CMD:=tgo-vps}"
@@ -48,6 +49,8 @@ set -uo pipefail
 
 RUST_MIN_MINOR=88          # Rust 1.88+
 KEEP_BACKUPS=3             # сколько последних копий программы оставлять
+BUILD_FREE_MB=768          # свободно на диске для сборки обновления FM, МБ
+FRESH_FREE_MB=2048         # то же для первой сборки (Rust и зависимости)
 BUILD_LOG="$BUILD_ROOT/rfm-build.log"
 
 # Ответы на вопросы можно задать заранее переменными окружения:
@@ -65,6 +68,8 @@ ADMIN_PASSWORD=''
 ORIG_ARGS=()
 INSTALL_FM=''
 INSTALLED_NOW=0
+FM_PORT=''               # порт программы на localhost для новой установки
+OTHERS_BEFORE=''         # другие службы сервера до начала команды (others_snapshot)
 SUMMARY=()
 TODO=()
 
@@ -179,10 +184,49 @@ public_listeners() {
 
 # Имя процесса, который слушает TCP-порт на любом адресе; пусто — порт свободен.
 port_owner() {
-  ss -H -tlnp 2>/dev/null | awk -v p="$1" '
+  local name
+  name=$(ss -H -tlnp 2>/dev/null | awk -v p="$1" '
     { port = $4; sub(/.*:/, "", port)
       if (port == p) { name = $6; sub(/^users:\(\("/, "", name); sub(/".*/, "", name)
-                       print (name == "" ? "?" : name); exit } }'
+                       print (name == "" ? "?" : name); exit } }')
+  printf '%s' "$name"
+}
+
+# Другие службы сервера: порты, кроме самого файлового менеджера и моста socat.
+# Список снимается до установки или обновления и сверяется после: VPN, координатор
+# Headscale с DERP, tailscaled, Headplane и др. должны остаться на месте.
+others_snapshot() {
+  {
+    ss -H -tulpn 2>/dev/null | awk '
+      { port = $5; sub(/.*:/, "", port); name = $7; sub(/^users:\(\("/, "", name); sub(/".*/, "", name)
+        if (port !~ /^[0-9]+$/ || name == "rust-file-manag" || name == "socat") next
+        proto = ($1 ~ /^udp/) ? "udp" : "tcp"
+        # Эфемерные порты исходящих сокетов меняются сами: для них только имя процесса.
+        # Сокеты ядра (WireGuard) без процесса — всегда по порту.
+        if (name == "") print port "/" proto " ?"
+        else if (port + 0 < 32768) print port "/" proto " " name
+        else print name }'
+  } | LC_ALL=C sort -u
+}
+
+others_check() {
+  local missing i
+  [[ -n $OTHERS_BEFORE ]] || return 0
+  # Пересозданному контейнеру и его портам нужно несколько секунд.
+  for i in 1 2 3 4 5 6; do
+    missing=$(LC_ALL=C comm -23 <(printf '%s\n' "$OTHERS_BEFORE") <(others_snapshot) | paste -sd ';' - | sed 's/;/; /g')
+    [[ -z $missing ]] && break
+    (( i < 6 )) && sleep "$WAIT_SECONDS"
+  done
+  if [[ -z $missing ]]; then
+    ok "другие службы сервера на месте (порты: $(grep -c . <<<"$OTHERS_BEFORE"))"
+    SUMMARY+=("Другие службы сервера (VPN, Tailscale и др.): на месте")
+    return 0
+  fi
+  fail "за время работы команды пропало: $missing"
+  SUMMARY+=("Другие службы: ПРОПАЛО — $missing")
+  TODO+=("Проверьте пропавшие службы: systemctl --failed; journalctl -p err -b")
+  return 1
 }
 
 # --- Что стоит на сервере ----------------------------------------------------
@@ -259,8 +303,8 @@ mem_mb() { awk '/MemTotal/ {print int($2/1024)}' "$MEMINFO"; }
 # Нет swap, а памяти мало: сборка Rust может вызвать OOM и задеть VPN-службы.
 swap_needed() { [[ -z $(swapon --show 2>/dev/null) ]] && (( $(mem_mb) < 3500 )); }
 
-setup_swap() {
-  local avail_mb
+setup_swap() {  # [сколько МБ оставить на диске для сборки, по умолчанию 1024]
+  local avail_mb need=$((2048 + ${1:-1024}))
   [[ -n $(swapon --show 2>/dev/null) ]] && { ok "swap уже есть"; return; }
   swap_needed || return 0
   if [[ -e $SWAP_FILE ]]; then
@@ -269,8 +313,8 @@ setup_swap() {
   fi
   # Заполненный диск остановил бы Docker, журналы и VPN-службы.
   avail_mb=$(df -Pm "$(dirname "$SWAP_FILE")" 2>/dev/null | awk 'NR == 2 {print $4}')
-  if [[ ! $avail_mb =~ ^[0-9]+$ ]] || (( avail_mb < 3072 )); then
-    warn "Свободно меньше 3 ГБ на диске — swap не создаю; сборке может не хватить памяти"
+  if [[ ! $avail_mb =~ ^[0-9]+$ ]] || (( avail_mb < need )); then
+    warn "Свободно меньше $need МБ на диске — swap не создаю; сборке может не хватить памяти"
     return 0
   fi
   say "Памяти $(mem_mb) МБ — создаю swap 2 ГБ, без него сборка Rust может упасть"
@@ -283,6 +327,25 @@ setup_swap() {
     rm -f -- "$SWAP_FILE"
     warn "swap создать не удалось — недописанный файл удалён"
   fi
+}
+
+# Свободно МБ на файловой системе каталога (или ближайшего существующего родителя).
+free_mb() {
+  local d=$1
+  while [[ ! -e $d && $d == /* && $d != / ]]; do d=$(dirname "$d"); done
+  df -Pm "$d" 2>/dev/null | awk 'NR == 2 {print $4}'
+}
+
+# Сборка не должна заполнить диск: на полном диске останавливаются Docker,
+# журналы, база координатора Headscale и VPN-службы. Размер неизвестен — не мешаем.
+disk_ok() {  # каталог нужно_МБ что
+  local avail
+  avail=$(free_mb "$1")
+  [[ $avail =~ ^[0-9]+$ ]] || return 0
+  (( avail >= $2 )) && return 0
+  fail "$3: на диске свободно $avail МБ, нужно не меньше $2 МБ — не начинаю, чтобы не заполнить диск"
+  say "Освободить место: journalctl --vacuum-size=100M; apt-get clean"
+  return 1
 }
 
 setup_firewall() {
@@ -384,6 +447,12 @@ fm_build() {
 }
 
 fm_url_local() { local b; b=$(env_get "$RFM_ENV" BIND_ADDR); echo "http://${b:-127.0.0.1:8080}"; }
+# Порт программы на localhost: из её настроек, а до установки — выбранный свободный.
+fm_port() {
+  local bind
+  bind=$(env_get "$RFM_ENV" BIND_ADDR)
+  if [[ $bind =~ :([0-9]+)$ ]]; then echo "${BASH_REMATCH[1]}"; else echo "${FM_PORT:-8080}"; fi
+}
 
 # Проверка после запуска: служба жива, запущен ожидаемый коммит, отвечают сайт,
 # мини-приложение и внутренний API. Публичный адрес — только предупреждение.
@@ -439,7 +508,7 @@ fm_write_env() {  # каталог_сборки
   chmod 600 "$tmp"
   {
     echo '# rust-file-manager — создано командой deploy'
-    echo 'BIND_ADDR=127.0.0.1:8080'
+    echo "BIND_ADDR=127.0.0.1:${FM_PORT:-8080}"
     echo "UPLOAD_DIR=$RFM_DATA/uploads"
     echo "USERS_FILE=$RFM_DATA/users.json"
     echo '# Логин администратора сайта'
@@ -524,7 +593,7 @@ fm_nginx() {
   case $HTTPS_MODE in
     none)
       say "HTTPS обеспечивает ваш прокси — nginx не трогаю"
-      TODO+=("Направьте https://$domain на http://127.0.0.1:8080 в своём прокси")
+      TODO+=("Направьте https://$domain на http://127.0.0.1:$(fm_port) в своём прокси")
       return 0 ;;
   esac
   if grep -RqsE "server_name[^;]*[[:space:]]${domain}[[:space:];]" "$en_dir"/ 2>/dev/null; then
@@ -533,6 +602,7 @@ fm_nginx() {
   elif [[ $HTTPS_MODE == certbot ]]; then
     example=$(fm_build_dir)/deploy/nginx.example.conf
     sed -e "s/server_name example\.com;/server_name $domain;/" \
+        -e "s#127\.0\.0\.1:8080#127.0.0.1:$(fm_port)#g" \
         -e 's/client_max_body_size 200M;/client_max_body_size 201M;/' "$example" >"$site_dir/rust-file-manager" &&
       ln -sf "$site_dir/rust-file-manager" "$en_dir/rust-file-manager" ||
       { fail "не удалось записать конфигурацию nginx"; return 1; }
@@ -565,6 +635,8 @@ fm_nginx() {
 }
 
 nginx_cloudflare_site() {  # домен
+  local port
+  port=$(fm_port)
   cat <<EOF
 server {
     listen 2083 ssl;
@@ -578,7 +650,7 @@ server {
     location /api/v1/uploads {
         client_max_body_size 10M;
         proxy_request_buffering off;
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://127.0.0.1:$port;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -588,7 +660,7 @@ server {
     # В пути подписанной ссылки лежит токен: не писать её в журнал
     location /d/ {
         access_log off;
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://127.0.0.1:$port;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -597,7 +669,7 @@ server {
     }
 
     location / {
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://127.0.0.1:$port;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -628,6 +700,8 @@ fm_update() {
     SUMMARY+=("Файловый менеджер: без изменений, $(fm_version)")
     return 0
   fi
+  disk_ok "$dir" "$BUILD_FREE_MB" "Сборка файлового менеджера" ||
+    { SUMMARY+=("Файловый менеджер: не обновлён — мало места на диске"); return 1; }
   # Как deploy: на маленьком VPS без swap сборка может вызвать OOM у VPN-служб.
   setup_swap
   fm_build "$dir" || return 1
@@ -802,15 +876,29 @@ cmd_status() {
   return 0
 }
 
-# Порты нового файлового менеджера и его nginx. Занятые VPN-службами (Xray,
-# XHTTP на 8080, 3x-ui, NaiveProxy…) порты команда не отбирает: останавливается
-# до установки пакетов и долгой сборки.
+# Порты нового файлового менеджера и его nginx. Занятые другими службами
+# (координатор Headscale и XHTTP на 8080, 3x-ui, NaiveProxy, DERP…) порты команда
+# не отбирает: программе выбирается свободный порт, а при занятом порте HTTPS
+# она останавливается до установки пакетов и долгой сборки.
+choose_fm_port() {
+  local p owner
+  if [[ -e $RFM_ENV ]]; then FM_PORT=$(fm_port); return 0; fi
+  for p in $(seq 8080 8099); do
+    [[ $p == 8091 ]] && continue
+    owner=$(port_owner "$p")
+    if [[ -z $owner ]]; then FM_PORT=$p; return 0; fi
+    say "Порт $p занят ($owner) — файловому менеджеру нужен другой"
+  done
+  die "Порты 8080–8099 заняты — освободите один или установите FM вручную (DEPLOY.md)"
+}
+
 fm_ports_check() {
   local p owner
-  for p in 8080 8091; do
-    owner=$(port_owner "$p")
-    [[ -z $owner ]] || die "Порт $p занят ($owner), а файловый менеджер слушает 127.0.0.1:$p. Освободите порт или установите FM вручную (DEPLOY.md)"
-  done
+  choose_fm_port
+  # 8091 — внутренний API для Telegram-бота (TELEGRAM_MINIAPP.md); сайту он не нужен.
+  owner=$(port_owner 8091)
+  [[ -z $owner ]] || warn "Порт 8091 занят ($owner): сайту это не мешает, но для связки с ботом (TELEGRAM_MINIAPP.md) API понадобится другой порт"
+
   case $HTTPS_MODE in
     certbot)
       for p in 80 443; do
@@ -844,6 +932,8 @@ deploy_questions() {
   ask_choice HTTPS_MODE "HTTPS: certbot — 443 свободен; cloudflare — через Cloudflare на 2083; none — свой прокси" \
     "$([[ -n $busy443 ]] && echo cloudflare || echo certbot)" "certbot cloudflare none"
   fm_ports_check
+  disk_ok "$BUILD_ROOT" "$FRESH_FREE_MB" "Сборка файлового менеджера" ||
+    die "Освободите место на диске и запустите deploy снова"
   [[ $HTTPS_MODE == certbot ]] && ask LE_EMAIL "Почта для Let's Encrypt (Enter — без почты)" ""
   ask RFM_ADMIN_LOGIN "Логин администратора сайта" admin
   [[ -e $RFM_ENV ]] || ask_password
@@ -857,7 +947,7 @@ deploy_questions() {
     elif confirm "Включить файрвол ufw (SSH, 80 и порт HTTPS)?" y; then ENABLE_UFW=yes; else ENABLE_UFW=no; fi
   fi
   step "План"
-  say "• файловый менеджер на https://$RFM_DOMAIN, HTTPS: $HTTPS_MODE, логин $RFM_ADMIN_LOGIN"
+  say "• файловый менеджер на https://$RFM_DOMAIN, HTTPS: $HTTPS_MODE, логин $RFM_ADMIN_LOGIN$([[ ${FM_PORT:-8080} != 8080 ]] && echo ", программа на 127.0.0.1:$FM_PORT")"
   if [[ $ENABLE_UFW == yes ]] && ! ufw status 2>/dev/null | grep -q 'Status: active'; then
     say "• включить ufw: SSH, порты сайта и уже работающих служб"
   fi
@@ -872,6 +962,7 @@ cmd_deploy() {
   take_lock
   print_status
   deploy_questions
+  OTHERS_BEFORE=$(others_snapshot)
   [[ -n $HTTPS_MODE ]] || HTTPS_MODE=$(state_get HTTPS_MODE)
   if [[ $INSTALL_FM == no ]]; then
     step "Файловый менеджер уже установлен"
@@ -886,7 +977,7 @@ cmd_deploy() {
   INSTALLED_NOW=1
   install_packages
   step "Подготовка сервера"
-  setup_swap
+  setup_swap "$FRESH_FREE_MB"
   setup_firewall
   fm_install_fresh
   if [[ -n $HTTPS_MODE ]]; then
@@ -927,6 +1018,7 @@ cmd_post_deploy() {
   fi
   if (( CHECK_ONLY )); then check_updates; return $?; fi
   post_deploy_questions
+  OTHERS_BEFORE=$(others_snapshot)
   fm_update && fm_nginx_uploads || rc=1
   final_checks || rc=1
   print_summary
@@ -955,6 +1047,7 @@ final_checks() {
     TODO+=("Войдите на $(env_get "$RFM_ENV" PUBLIC_BASE_URL)/login логином администратора и пригласите участников")
     TODO+=("По желанию: мини-приложение для Telegram и API для своего бота — TELEGRAM_MINIAPP.md")
   fi
+  others_check || rc=1
   return "$rc"
 }
 
