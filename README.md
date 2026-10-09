@@ -153,8 +153,8 @@ relay-серверы не могут прочитать содержимое
 план развития — [TELEGRAM_MINIAPP_PLAN.md](TELEGRAM_MINIAPP_PLAN.md).
 
 Бот и файловый менеджер на одном VPS, все команды по порядку:
-- установка с нуля — [DEPLOYwTELEGRAM.md](DEPLOYwTELEGRAM.md);
-- обновление работающего сервера — [POST_DEPLOYwTELEGRAM.md](POST_DEPLOYwTELEGRAM.md);
+- установка с нуля — [DEPLOY.md](DEPLOY.md);
+- обновление работающего сервера — [POST_DEPLOY.md](POST_DEPLOY.md);
 - схема: что где установлено, как ходят команды, где лежат общие, личные и
   обменные файлы — [ARCHITECTUREwTELEGRAM.md](ARCHITECTUREwTELEGRAM.md).
 
@@ -292,20 +292,24 @@ RUST_LOG=info
 
 ## Деплой на VPS
 
-Полная пошаговая инструкция (systemd + nginx + HTTPS + Cloudflare + многопользовательский режим) — в [DEPLOY.md](DEPLOY.md). Вместе с ботом TelegramOnly на одном VPS — [DEPLOYwTELEGRAM.md](DEPLOYwTELEGRAM.md) (с нуля) и [POST_DEPLOYwTELEGRAM.md](POST_DEPLOYwTELEGRAM.md) (обновление). Доступ через сеть Tailscale/Headscale — в [TAILSCALE.md](TAILSCALE.md).
+Три инструкции для одного или обоих проектов на VPS:
+
+- [DEPLOY_ALGORITHM.md](DEPLOY_ALGORITHM.md) — короткий алгоритм и вопросы перед запуском;
+- [DEPLOY.md](DEPLOY.md) — установка, HTTPS и справочник `deploy`;
+- [POST_DEPLOY.md](POST_DEPLOY.md) — обновление, откат и перенос на другой VPS.
+
+Доступ через сеть Tailscale/Headscale — в [TAILSCALE.md](TAILSCALE.md).
 
 **Одной командой (с 1.8.0).** На сервере под root:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/kureinmaxim/rust-file-manager/main/deploy/rfm-vps.sh | bash -s -- setup
-deploy          # новый сервер: ставит недостающее — бота, файловый менеджер, связку
-post_deploy     # потом: обновляет то, что установлено
 ```
 
-Команды сами определяют, что уже стоит на сервере. Справочник по командам —
-[DEPLOYnew.md](DEPLOYnew.md); пошагово — в начале
-[DEPLOYwTELEGRAM.md](DEPLOYwTELEGRAM.md) и [POST_DEPLOYwTELEGRAM.md](POST_DEPLOYwTELEGRAM.md),
-скрипт — [deploy/rfm-vps.sh](deploy/rfm-vps.sh), его тесты в песочнице —
+После `setup` отдельно запустите `deploy` для установки недостающего,
+либо `post_deploy` для обновления. Команды задают вопросы и сами определяют,
+что уже стоит на сервере. Не вставляйте следующую команду в ответ установщику.
+Скрипт — [deploy/rfm-vps.sh](deploy/rfm-vps.sh), его тесты в песочнице —
 `bash deploy/tests/rfm-vps.test.sh` (от root, без systemd, Docker и сети).
 
 Примеры конфигов лежат в [`deploy/`](deploy/):

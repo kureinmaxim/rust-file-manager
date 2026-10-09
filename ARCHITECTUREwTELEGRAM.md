@@ -7,8 +7,8 @@
 - где хранятся секреты.
 
 Другие справочники этой серии:
-- установка с нуля — [DEPLOYwTELEGRAM.md](DEPLOYwTELEGRAM.md);
-- обновление работающего сервера — [POST_DEPLOYwTELEGRAM.md](POST_DEPLOYwTELEGRAM.md).
+- установка с нуля — [DEPLOY.md](DEPLOY.md);
+- обновление работающего сервера — [POST_DEPLOY.md](POST_DEPLOY.md).
 
 Схема описывает rust-file-manager **1.7.0** и TelegramOnly **3.25.0**. Все
 имена, адреса и логины здесь — примеры: `files.example.com`,
@@ -305,6 +305,6 @@ anna открывает мини-приложение → «Обмен» → «�
 | Настройки бота | `/opt/TelegramOnly/.env`, `/opt/TelegramOnly/*_config.json` | токен бота, секреты API, конфигурации VPN-транспортов |
 
 Для согласованной копии файлового менеджера остановите его на время
-архивации: `tar` в [POST_DEPLOYwTELEGRAM.md](POST_DEPLOYwTELEGRAM.md) §1.2.
+архивации: [резервная копия перед обновлением](POST_DEPLOY.md#backup-before-update).
 Жёсткие ссылки `tar` сохраняет, поэтому копия «К себе» не удваивает размер
 архива. Храните копии вне сервера и в зашифрованном виде.

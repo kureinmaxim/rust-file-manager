@@ -9,7 +9,7 @@
 # Первый запуск на сервере, под root:
 #   curl -fsSL https://raw.githubusercontent.com/kureinmaxim/rust-file-manager/main/deploy/rfm-vps.sh | bash -s -- setup
 #
-# Те же шаги вручную и пояснения: DEPLOYwTELEGRAM.md, POST_DEPLOYwTELEGRAM.md,
+# Те же шаги вручную и пояснения: DEPLOY.md, POST_DEPLOY.md,
 # схема сервера: ARCHITECTUREwTELEGRAM.md.
 #
 # Скрипт не выводит секреты. Пароль администратора вводится скрыто, ключи
@@ -621,7 +621,7 @@ fm_nginx() {
   else
     if [[ ! -s $NGINX_DIR/ssl/$domain/cert.pem || ! -s $NGINX_DIR/ssl/$domain/key.pem ]]; then
       warn "Нет сертификата Cloudflare в $NGINX_DIR/ssl/$domain/ (cert.pem, key.pem)"
-      TODO+=("Положите Origin-сертификат Cloudflare в $NGINX_DIR/ssl/$domain/ (DEPLOYwTELEGRAM.md §2.7Б) и запустите deploy ещё раз")
+      TODO+=("Положите Origin-сертификат Cloudflare в $NGINX_DIR/ssl/$domain/ (DEPLOY.md, раздел «HTTPS через Cloudflare») и запустите deploy ещё раз")
       return 0
     fi
     chmod 600 "$NGINX_DIR/ssl/$domain/key.pem"
@@ -848,10 +848,12 @@ bot_update() {
   git -C "$BOT_DIR" merge -q --ff-only origin/main || { fail "git merge --ff-only не прошёл"; return 1; }
   if [[ $flavor == docker ]]; then
     before=$(bot_net)
-    ( cd "$BOT_DIR" && bash scripts/rebuild_bot.sh --prune ) || { fail "rebuild_bot.sh завершился с ошибкой"; return 1; }
+    ( cd "$BOT_DIR" && bash scripts/rebuild_bot.sh ) || { fail "rebuild_bot.sh завершился с ошибкой"; return 1; }
     after=$(bot_net)
-    [[ $before == "$after" ]] || warn "сеть бота изменилась: $before → $after"
-    docker image prune -f >/dev/null 2>&1 || true
+    if [[ $before != "$after" ]]; then
+      fail "сеть бота изменилась — обновление не подтверждено; проверьте COMPOSE_FILE"
+      return 1
+    fi
     cver=$(bot_container_version)
     if [[ $cver != "$(bot_repo_version)" ]]; then
       fail "в контейнере $cver, а в репозитории $(bot_repo_version) — образ не пересобрался"
@@ -873,7 +875,11 @@ bot_update() {
 
 bot_recreate() {
   case $(bot_flavor) in
-    docker) ( cd "$BOT_DIR" && docker compose up -d --force-recreate "$BOT_SERVICE" >/dev/null 2>&1 ) ;;
+    docker)
+      bot_pin_compose_files
+      ( cd "$BOT_DIR" &&
+        { [[ ! -f scripts/rebuild_guard.py ]] || python3 scripts/rebuild_guard.py "$BOT_CONTAINER"; } &&
+        docker compose up -d --no-deps --force-recreate "$BOT_SERVICE" >/dev/null 2>&1 ) ;;
     systemd) systemctl restart "$BOT_UNIT" ;;
   esac
 }
@@ -1269,7 +1275,7 @@ rfm-vps — бот TelegramOnly и rust-file-manager на одном VPS
   rfm-vps setup     (пере)установить команды deploy и post_deploy
 
 REF — ветка или тег rust-file-manager (по умолчанию main).
-Справка: DEPLOYwTELEGRAM.md и POST_DEPLOYwTELEGRAM.md в репозитории rust-file-manager.
+Инструкции: DEPLOY_ALGORITHM.md, DEPLOY.md и POST_DEPLOY.md в репозитории rust-file-manager.
 EOF
 }
 

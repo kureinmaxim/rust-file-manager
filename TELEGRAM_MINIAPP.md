@@ -7,7 +7,7 @@ Telegram к существующему аккаунту (или регистра
 
 План и устройство: [TELEGRAM_MINIAPP_PLAN.md](TELEGRAM_MINIAPP_PLAN.md).
 Все команды установки и обновления вместе с ботом:
-[DEPLOYwTELEGRAM.md](DEPLOYwTELEGRAM.md), [POST_DEPLOYwTELEGRAM.md](POST_DEPLOYwTELEGRAM.md);
+[DEPLOY.md](DEPLOY.md), [POST_DEPLOY.md](POST_DEPLOY.md);
 схема сервера и хранения файлов — [ARCHITECTUREwTELEGRAM.md](ARCHITECTUREwTELEGRAM.md).
 Макет экранов: [design/miniapp-mockup.html](design/miniapp-mockup.html).
 
@@ -41,7 +41,7 @@ Telegram к существующему аккаунту (или регистра
   очередью загрузок частями, с докачкой. На главной — плашка «Администратор
   прислал файлы». Хранение: `UPLOAD_DIR/exchange/<участник>/from-admin|from-user/`.
 - С 1.8.0 бот и файловый менеджер ставятся на VPS командой `deploy` и
-  обновляются командой `post_deploy` ([DEPLOYnew.md](DEPLOYnew.md)).
+  обновляются командой `post_deploy` ([POST_DEPLOY.md](POST_DEPLOY.md)).
 - С 1.7.0 бот TelegramOnly (3.25.0+) **присылает уведомление** получателю,
   когда в обмен пришёл файл: «📥 Администратор прислал вам файл…» с кнопкой
   «Открыть обмен», которая открывает мини-приложение сразу на нужном экране.
@@ -113,7 +113,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://files.example.com/tg/
 ## 5. Связка с ботом TelegramOnly
 
 Бот работает в Docker и ходит во внутренний API файлового менеджера через
-socat-мост на шлюзе docker-сети (тот же приём, что для BotCriptoM).
+socat-мост на шлюзе docker-сети (тот же приём, что для TelegramOnly).
 
 1. В `/etc/rust-file-manager/env`:
 
@@ -125,8 +125,7 @@ socat-мост на шлюзе docker-сети (тот же приём, что �
 
    `sudo systemctl restart rust-file-manager`; в журнале — `internal API for the bot enabled`.
 2. Мост: поправьте адрес шлюза в [deploy/rfm-internal-bridge.service](deploy/rfm-internal-bridge.service)
-   (`docker network inspect <проект>_default`, обычно `172.18.0.1` или
-   `172.20.0.1`), затем
+   (`docker network inspect <проект>_default`), затем
 
    ```bash
    sudo apt install -y socat
@@ -135,7 +134,7 @@ socat-мост на шлюзе docker-сети (тот же приём, что �
    ```
 
    Firewall: разрешите вход на порт 8091 только с интерфейса docker-сети — по
-   образцу мостов BotCriptoM. Наружу порт не открывайте; nginx его не проксирует.
+   образцу мостов TelegramOnly. Наружу порт не открывайте; nginx его не проксирует.
 3. В `.env` бота (`/opt/TelegramOnly/.env`):
 
    ```env
