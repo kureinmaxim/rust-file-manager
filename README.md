@@ -144,18 +144,20 @@ relay-серверы не могут прочитать содержимое
 
 ## Мини-приложение в Telegram
 
-Файлы можно открыть прямо в Telegram — кнопкой «Файлы» в чате с ботом
-[TelegramOnly](https://github.com/kureinmaxim/TelegramOnly). Вход без пароля
+Файлы можно открыть прямо в Telegram — кнопкой «Файлы» в чате со своим ботом
+(у автора это TelegramOnly, приватный репозиторий). Вход без пароля
 по подписи Telegram, тема оформления Telegram, загрузка больших файлов частями с
 докачкой, подпапки внутри категорий, поиск, просмотр фото, скачивание нативным
 диалогом Telegram. Включается переменной `MINIAPP_ENABLED`; токен бота файловому
 менеджеру не нужен. Настройка — [TELEGRAM_MINIAPP.md](TELEGRAM_MINIAPP.md).
 
-Бот и файловый менеджер на одном VPS, все команды по порядку:
+Файловый менеджер на VPS, все команды по порядку:
+- простой алгоритм — [DEPLOY_ALGORITHM.md](DEPLOY_ALGORITHM.md);
 - установка с нуля — [DEPLOY.md](DEPLOY.md);
-- обновление работающего сервера — [POST_DEPLOY.md](POST_DEPLOY.md);
-- схема: что где установлено, как ходят команды, где лежат общие, личные и
-  обменные файлы — [ARCHITECTUREwTELEGRAM.md](ARCHITECTUREwTELEGRAM.md).
+- обновление работающего сервера — [POST_DEPLOY.md](POST_DEPLOY.md).
+
+Команды `deploy` и `post_deploy` ставят и обновляют только файловый менеджер:
+бот, VPN и другие программы на сервере ими не затрагиваются.
 
 ## Работа с интерфейсом
 
@@ -305,12 +307,12 @@ RUST_LOG=info
 curl -fsSL https://raw.githubusercontent.com/kureinmaxim/rust-file-manager/main/deploy/rfm-vps.sh | bash -s -- setup
 ```
 
-После `setup` отдельно запустите `deploy` для установки недостающего,
+После `setup` отдельно запустите `deploy` для установки файлового менеджера,
 либо `post_deploy` для обновления. Команды задают вопросы и сами определяют,
 что уже стоит на сервере. Не вставляйте следующую команду в ответ установщику.
 Скрипт — [deploy/rfm-vps.sh](deploy/rfm-vps.sh), его тесты в песочнице —
 `bash deploy/tests/rfm-vps.test.sh` (от root, без systemd, Docker и сети);
-сценарий сервера с VPN-протоколами — `bash deploy/tests/rfm-vps-vpn.test.sh`.
+сценарий сервера с уже работающими службами (VPN и др.) — `bash deploy/tests/rfm-vps-vpn.test.sh`.
 
 Примеры конфигов лежат в [`deploy/`](deploy/):
 

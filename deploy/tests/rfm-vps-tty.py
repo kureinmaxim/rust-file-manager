@@ -10,18 +10,13 @@ from pathlib import Path
 
 script, scenario = sys.argv[1:]
 cases = {
-    "install_bot": (["deploy"], [("Что установить:", "bot"),
-                                  ("Сеть Docker для бота:", "host"),
-                                  ("Начинаем?", "y")], 0),
-    "install_fm": (["deploy"], [("Что установить:", "fm"),
-                                 ("Придумайте пароль", "Secret-pass-1"),
+    "install_fm": (["deploy"], [("Придумайте пароль", "Secret-pass-1"),
                                  ("Повторите пароль:", "Secret-pass-1"),
                                  ("Начинаем?", "y")], 0),
-    "cancel_bot": (["post_deploy"], [("Обновляем по этому плану?", "n")], 1),
-    "update_bot": (["post_deploy"], [("Обновляем по этому плану?", "y")], 0),
-    "cancel_both": (["post_deploy"], [("Что обновить:", "fm"),
-                                      ("Сохранить архив данных", "n"),
-                                      ("Обновляем по этому плану?", "n")], 1),
+    "cancel_fm": (["post_deploy"], [("Сохранить архив данных", "n"),
+                                    ("Обновляем по этому плану?", "n")], 1),
+    "update_fm": (["post_deploy"], [("Сохранить архив данных", "n"),
+                                    ("Обновляем по этому плану?", "y")], 0),
 }
 args, replies, expected = cases[scenario]
 master, slave = pty.openpty()
