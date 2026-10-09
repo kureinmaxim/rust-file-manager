@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# rfm-vps — бот TelegramOnly и файловый менеджер rust-file-manager на одном VPS.
+# rfm-vps — установка и обновление rust-file-manager на VPS.
 #
 # Команды (ставятся в /usr/local/sbin командой setup):
-#   deploy           установить то, чего на сервере ещё нет, и связать бота с файловым менеджером
-#   post_deploy      обновить то, что уже установлено; сам определяет, что стоит на сервере
+#   deploy           установить файловый менеджер, nginx и HTTPS, если их ещё нет
+#   post_deploy      обновить установленный файловый менеджер (с проверкой и откатом)
 #   rfm-vps status   показать, что установлено (только чтение)
 #
 # Первый запуск на сервере, под root:
 #   curl -fsSL https://raw.githubusercontent.com/kureinmaxim/rust-file-manager/main/deploy/rfm-vps.sh | bash -s -- setup
 #
-# Те же шаги вручную и пояснения: DEPLOY.md, POST_DEPLOY.md,
-# схема сервера: ARCHITECTUREwTELEGRAM.md.
+# Те же шаги вручную и пояснения: DEPLOY_ALGORITHM.md, DEPLOY.md, POST_DEPLOY.md.
+# Связка с Telegram-ботом (мини-приложение «Файлы») — TELEGRAM_MINIAPP.md;
+# эта команда бота не ставит и не трогает.
 #
 # Скрипт не выводит секреты. Пароль администратора вводится скрыто, ключи
 # создаются на сервере и пишутся в файлы с правами 600; на экране — только
@@ -20,7 +21,6 @@ set -uo pipefail
 
 # --- Пути и имена. Переопределяются переменными окружения (для тестов) -------
 : "${RFM_REPO_URL:=https://github.com/kureinmaxim/rust-file-manager.git}"
-: "${BOT_REPO_URL:=https://github.com/kureinmaxim/TelegramOnly.git}"
 : "${RFM_VPS_RAW:=https://raw.githubusercontent.com/kureinmaxim/rust-file-manager}"
 : "${RFM_VPS_REF:=main}"
 : "${RFM_BIN:=/usr/local/bin/rust-file-manager}"
@@ -29,45 +29,41 @@ set -uo pipefail
 : "${RFM_ENV:=/etc/rust-file-manager/env}"
 : "${RFM_DATA:=/var/lib/rust-file-manager}"
 : "${RFM_BACKUPS:=/var/backups/rust-file-manager}"
-: "${BOT_DIR:=/opt/TelegramOnly}"
-: "${BOT_BACKUPS:=/var/backups/telegramonly}"
-: "${BOT_CONTAINER:=telegram-helper-lite}"
-: "${BOT_SERVICE:=telegram-helper}"
-: "${BOT_UNIT:=telegramonly.service}"
-: "${BRIDGE_UNIT:=rfm-internal-bridge.service}"
 : "${BUILD_ROOT:=/root}"
 : "${STATE_FILE:=/etc/rfm-vps.conf}"
 : "${CMD_DIR:=/usr/local/sbin}"
 : "${NGINX_DIR:=/etc/nginx}"
 : "${LE_DIR:=/etc/letsencrypt}"
-: "${SYSCTL_FILE:=/etc/sysctl.d/99-tcp-mtu-probing.conf}"
 : "${SWAP_FILE:=/swapfile}"
 : "${LOCK_FILE:=/run/rfm-vps.lock}"
 : "${CARGO_ENV:=$HOME/.cargo/env}"
 : "${FM_USER:=filemgr}"
 : "${FSTAB:=/etc/fstab}"
+: "${MEMINFO:=/proc/meminfo}"
 : "${POLL_SECONDS:=15}"      # как часто показывать ход сборки
-: "${WAIT_SECONDS:=5}"       # пауза при ожидании запуска бота
+# Полная версия этих команд (вместе с ботом) ставится из другого репозитория
+# под именем tgo-vps; эта версия её не заменяет.
+: "${FULL_CMD:=tgo-vps}"
+: "${FULL_SCRIPT:=/opt/TelegramOnly/scripts/tgo-vps.sh}"
 
 RUST_MIN_MINOR=88          # Rust 1.88+
-KEEP_BACKUPS=3             # сколько последних копий программы и .env оставлять
+KEEP_BACKUPS=3             # сколько последних копий программы оставлять
 BUILD_LOG="$BUILD_ROOT/rfm-build.log"
 
 # Ответы на вопросы можно задать заранее переменными окружения:
 # RFM_DOMAIN, HTTPS_MODE (certbot|cloudflare|none), LE_EMAIL, RFM_ADMIN_LOGIN,
-# BOT_NETWORK (bridge|host), ENABLE_UFW (yes|no), INSTALL_BOT, INSTALL_FM (yes|no).
-: "${RFM_DOMAIN:=}" "${HTTPS_MODE:=}" "${LE_EMAIL:=}" "${RFM_ADMIN_LOGIN:=}"
-: "${BOT_NETWORK:=}" "${ENABLE_UFW:=}" "${INSTALL_BOT:=}" "${INSTALL_FM:=}"
+# ENABLE_UFW (yes|no).
+: "${RFM_DOMAIN:=}" "${HTTPS_MODE:=}" "${LE_EMAIL:=}" "${RFM_ADMIN_LOGIN:=}" "${ENABLE_UFW:=}"
 
 CMD=''
 ASSUME_YES=0
 FORCE=0
 CHECK_ONLY=0
 BACKUP_DATA=0
-ONLY=''
 RFM_REF=''
 ADMIN_PASSWORD=''
 ORIG_ARGS=()
+INSTALL_FM=''
 INSTALLED_NOW=0
 SUMMARY=()
 TODO=()
@@ -149,25 +145,6 @@ env_get() {
 }
 env_has() { [[ -r $1 ]] && grep -q "^$2=" "$1"; }
 
-# WARNING: ключ в аргументе sed/awk виден другим процессам через ps.
-# Значение записывается builtin printf; в аргументы внешних программ не попадает.
-# Вызывающий код обязан сделать резервную копию до изменения существующего файла.
-env_put() {  # файл ключ значение
-  local file=$1 key=$2 value=$3 tmp line found=0
-  tmp=$(mktemp "$(dirname "$file")/.rfm-env.XXXXXX") || return 1
-  cp -p "$file" "$tmp" || return 1
-  {
-    while IFS= read -r line || [[ -n $line ]]; do
-      if [[ $line == "$key="* ]]; then
-        (( found )) || printf '%s=%s\n' "$key" "$value"
-        found=1
-      else printf '%s\n' "$line"; fi
-    done <"$file"
-    (( found )) || printf '%s=%s\n' "$key" "$value"
-  } >"$tmp"
-  mv -fT "$tmp" "$file"
-}
-
 state_get() { env_get "$STATE_FILE" "$1"; }
 state_set() {
   local key=$1 val=$2
@@ -177,12 +154,6 @@ state_set() {
   printf '%s=%s\n' "$key" "$val" >>"$STATE_FILE"
 }
 
-# Копия файла с секретами в каталог резервных копий (700); последние KEEP_BACKUPS.
-backup_secret_file() {  # файл каталог префикс
-  local src=$1 dir=$2 prefix=$3
-  install -d -m 0700 "$dir"
-  cp -p "$src" "$dir/$prefix-$(ts)" && prune_backups "$dir" "$prefix-*"
-}
 prune_backups() {  # каталог шаблон
   local dir=$1 pattern=$2 f n=0
   while IFS= read -r f; do
@@ -193,24 +164,30 @@ prune_backups() {  # каталог шаблон
 
 http_code() { curl -sS -o /dev/null -w '%{http_code}' --max-time "${2:-10}" "$1" 2>/dev/null || true; }
 
+# Порты, которые службы сервера слушают не только на loopback: строки
+# «порт/tcp|udp процесс». VPN (Xray, Hysteria2, NaiveProxy, Mieru, MTProto…)
+# должен остаться доступным, если deploy включает ufw. DHCP-клиент не нужен.
+public_listeners() {
+  ss -H -tulpn 2>/dev/null | awk '
+    { addr = $5; port = $5; sub(/:[^:]*$/, "", addr); sub(/.*:/, "", port)
+      if (port !~ /^[0-9]+$/ || addr ~ /^(127\.|\[::1\]|::1$|\[::ffff:127\.)/) next
+      proto = ($1 ~ /^udp/) ? "udp" : "tcp"
+      if (proto == "udp" && (port == 68 || port == 546)) next
+      name = $7; sub(/^users:\(\("/, "", name); sub(/".*/, "", name)
+      print port "/" proto, (name == "" ? "?" : name) }' | sort -u
+}
+
+# Имя процесса, который слушает TCP-порт на любом адресе; пусто — порт свободен.
+port_owner() {
+  ss -H -tlnp 2>/dev/null | awk -v p="$1" '
+    { port = $4; sub(/.*:/, "", port)
+      if (port == p) { name = $6; sub(/^users:\(\("/, "", name); sub(/".*/, "", name)
+                       print (name == "" ? "?" : name); exit } }'
+}
+
 # --- Что стоит на сервере ----------------------------------------------------
 unit_exists() { systemctl cat "$1" >/dev/null 2>&1; }
 fm_present() { [[ -x $RFM_BIN ]] || unit_exists "$RFM_UNIT"; }
-
-bot_flavor() {  # docker | systemd | cloned | none
-  if has docker && docker inspect "$BOT_CONTAINER" >/dev/null 2>&1; then echo docker
-  elif unit_exists "$BOT_UNIT"; then echo systemd
-  elif [[ -d $BOT_DIR/.git ]]; then echo cloned
-  else echo none; fi
-}
-bot_present() { [[ $(bot_flavor) == docker || $(bot_flavor) == systemd ]]; }
-bot_healthy() {
-  case $(bot_flavor) in
-    docker) docker exec "$BOT_CONTAINER" true >/dev/null 2>&1 ;;
-    systemd) systemctl is-active --quiet "$BOT_UNIT" ;;
-    *) return 1 ;;
-  esac
-}
 
 fm_start_line() {  # последняя строка запуска (с начала журнала или с @epoch)
   local from=()
@@ -220,19 +197,6 @@ fm_start_line() {  # последняя строка запуска (с нача
 line_field() { grep -o "$1=\"[^\"]*\"" | head -1 | cut -d'"' -f2; }
 fm_version() { fm_start_line | line_field version; }
 fm_commit()  { fm_start_line | line_field commit; }
-
-bot_net() { docker inspect -f '{{.HostConfig.NetworkMode}}' "$BOT_CONTAINER" 2>/dev/null; }
-bot_container_version() {
-  docker exec "$BOT_CONTAINER" grep -m1 -E '^version[[:space:]]*=' /app/pyproject.toml 2>/dev/null | cut -d'"' -f2
-}
-bot_repo_version() { grep -m1 -E '^version[[:space:]]*=' "$BOT_DIR/pyproject.toml" 2>/dev/null | cut -d'"' -f2; }
-bot_running_version() {
-  case $(bot_flavor) in
-    docker) bot_container_version ;;
-    systemd) bot_repo_version ;;
-  esac
-}
-bot_linked() { env_has "$BOT_DIR/.env" FILES_SERVICE_TOKEN && env_has "$BOT_DIR/.env" FILES_INTERNAL_URL; }
 
 fm_build_dir() {
   local d
@@ -245,21 +209,7 @@ fm_build_dir() {
   echo "$BUILD_ROOT/rfm-build"
 }
 
-# ID и @username бота по токену из его .env. Токен уходит в curl через stdin,
-# а не в аргументы командной строки, и никуда не печатается.
-bot_getme() {
-  local token json id user
-  token=$(env_get "$BOT_DIR/.env" BOT_TOKEN)
-  [[ $token =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] || return 1
-  json=$(printf 'url = "https://api.telegram.org/bot%s/getMe"\n' "$token" | curl -sS --max-time 20 -K - 2>/dev/null) || return 1
-  id=$(grep -o '"id":[0-9]*' <<<"$json" | head -1 | cut -d: -f2)
-  user=$(grep -o '"username":"[^"]*"' <<<"$json" | head -1 | cut -d'"' -f4)
-  [[ -n $id && -n $user ]] || return 1
-  printf '%s %s\n' "$id" "$user"
-}
-
 print_status() {
-  local flavor ver net
   step "Что стоит на сервере"
   if fm_present; then
     say "Файловый менеджер: установлен, версия ${C_B}$(fm_version || true)${C_0} (коммит $(fm_commit || true)), служба $(systemctl is-active "$RFM_UNIT" 2>/dev/null || true)"
@@ -268,16 +218,16 @@ print_status() {
   else
     say "Файловый менеджер: не установлен"
   fi
-  flavor=$(bot_flavor)
-  case $flavor in
-    docker)
-      ver=$(bot_container_version); net=$(bot_net)
-      say "Бот TelegramOnly: Docker, версия ${C_B}${ver:-?}${C_0}, сеть $net, связан с файловым менеджером: $(bot_linked && echo да || echo нет)" ;;
-    systemd)
-      say "Бот TelegramOnly: systemd ($BOT_UNIT), версия ${C_B}$(bot_repo_version)${C_0}, связан с файловым менеджером: $(bot_linked && echo да || echo нет)" ;;
-    cloned) say "Бот TelegramOnly: код в $BOT_DIR есть, но бот не установлен" ;;
-    none)   say "Бот TelegramOnly: не установлен" ;;
-  esac
+  # Подсказка только тем, у кого на сервере есть клон бота с полной версией
+  # (или его прежний клон, где её ещё нет: переход с общих команд).
+  local clone=${FULL_SCRIPT%/scripts/*}
+  if [[ -f $FULL_SCRIPT ]]; then
+    say "Эта команда обслуживает только файловый менеджер. Полная версия (вместе с ботом):"
+    say "  bash $FULL_SCRIPT setup"
+  elif [[ $clone != "$FULL_SCRIPT" && -d $clone/.git ]]; then
+    say "Эта команда обслуживает только файловый менеджер. Полная версия (вместе с ботом):"
+    say "  git -C $clone pull --ff-only && bash $FULL_SCRIPT setup"
+  fi
 }
 
 # --- Общая подготовка (только deploy) ----------------------------------------
@@ -294,37 +244,50 @@ take_lock() {
 }
 
 install_packages() {
-  local pkgs=(git curl ca-certificates openssl build-essential pkg-config socat nginx ufw)
+  local pkgs=(git curl ca-certificates openssl build-essential pkg-config)
+  # nginx занимает порт 80 сразу после установки: только если HTTPS через него.
+  [[ $HTTPS_MODE == certbot || $HTTPS_MODE == cloudflare ]] && pkgs+=(nginx)
   [[ $HTTPS_MODE == certbot ]] && pkgs+=(certbot python3-certbot-nginx)
+  [[ $ENABLE_UFW == yes ]] && pkgs+=(ufw)
   step "Системные пакеты"
   DEBIAN_FRONTEND=noninteractive apt-get update -q >/dev/null || die "apt-get update не прошёл"
   DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${pkgs[@]}" >/dev/null || die "Не удалось поставить пакеты: ${pkgs[*]}"
   ok "${pkgs[*]}"
 }
 
-setup_sysctl() {
-  # Обход PMTU-дыры у части провайдеров (TelegramOnly SERVER_OPS.md): без него
-  # опрос Telegram зависает. В сети хоста бот берёт эти значения только с хоста.
-  if [[ ! -f $SYSCTL_FILE ]]; then
-    printf 'net.ipv4.tcp_mtu_probing = 2\nnet.ipv4.tcp_base_mss = 1024\n' >"$SYSCTL_FILE"
-  fi
-  sysctl -q -p "$SYSCTL_FILE" >/dev/null 2>&1 && ok "MTU probing включён ($SYSCTL_FILE)" || warn "sysctl не применился"
-}
+mem_mb() { awk '/MemTotal/ {print int($2/1024)}' "$MEMINFO"; }
+# Нет swap, а памяти мало: сборка Rust может вызвать OOM и задеть VPN-службы.
+swap_needed() { [[ -z $(swapon --show 2>/dev/null) ]] && (( $(mem_mb) < 3500 )); }
 
 setup_swap() {
-  local mem_mb
+  local avail_mb
   [[ -n $(swapon --show 2>/dev/null) ]] && { ok "swap уже есть"; return; }
-  mem_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
-  (( mem_mb >= 3500 )) && return
-  say "Памяти ${mem_mb} МБ — создаю swap 2 ГБ, без него сборка Rust может упасть"
-  { fallocate -l 2G "$SWAP_FILE" 2>/dev/null || dd if=/dev/zero of="$SWAP_FILE" bs=1M count=2048 status=none; } &&
-    chmod 600 "$SWAP_FILE" && mkswap -q "$SWAP_FILE" >/dev/null && swapon "$SWAP_FILE" &&
-    { grep -q "^$SWAP_FILE " "$FSTAB" || echo "$SWAP_FILE none swap sw 0 0" >>"$FSTAB"; } &&
-    ok "swap 2 ГБ" || warn "swap создать не удалось"
+  swap_needed || return 0
+  if [[ -e $SWAP_FILE ]]; then
+    warn "$SWAP_FILE уже есть, но swap не включён — не трогаю его; сборке может не хватить памяти"
+    return 0
+  fi
+  # Заполненный диск остановил бы Docker, журналы и VPN-службы.
+  avail_mb=$(df -Pm "$(dirname "$SWAP_FILE")" 2>/dev/null | awk 'NR == 2 {print $4}')
+  if [[ ! $avail_mb =~ ^[0-9]+$ ]] || (( avail_mb < 3072 )); then
+    warn "Свободно меньше 3 ГБ на диске — swap не создаю; сборке может не хватить памяти"
+    return 0
+  fi
+  say "Памяти $(mem_mb) МБ — создаю swap 2 ГБ, без него сборка Rust может упасть"
+  if { fallocate -l 2G "$SWAP_FILE" 2>/dev/null || dd if=/dev/zero of="$SWAP_FILE" bs=1M count=2048 status=none; } &&
+    chmod 600 "$SWAP_FILE" && mkswap -q "$SWAP_FILE" >/dev/null && swapon "$SWAP_FILE"; then
+    grep -q "^$SWAP_FILE " "$FSTAB" || echo "$SWAP_FILE none swap sw 0 0" >>"$FSTAB"
+    ok "swap 2 ГБ"
+  else
+    swapoff "$SWAP_FILE" 2>/dev/null
+    rm -f -- "$SWAP_FILE"
+    warn "swap создать не удалось — недописанный файл удалён"
+  fi
 }
 
 setup_firewall() {
-  local port web=0 https_port=443
+  local port web=0 https_port=443 spec
+  local -a kept=()
   has ufw || return 0
   [[ $HTTPS_MODE == cloudflare ]] && https_port=2083
   { [[ $INSTALL_FM == yes ]] || fm_present; } && [[ $HTTPS_MODE != none ]] && web=1
@@ -343,17 +306,15 @@ setup_firewall() {
   fi
   ufw allow "$port/tcp" >/dev/null || { warn "ufw: не удалось открыть SSH — файрвол не включаю"; return; }
   if (( web )); then ufw allow 80/tcp >/dev/null; ufw allow "$https_port/tcp" >/dev/null; fi
+  # Уже работающие службы (VPN и др.) не должны оказаться за новым файрволом.
+  while read -r spec _; do
+    ufw allow "$spec" >/dev/null || { warn "ufw: не удалось разрешить $spec — файрвол не включаю"; return; }
+    kept+=("$spec")
+  done < <(public_listeners)
   ufw --force enable >/dev/null && ok "ufw включён: SSH $port$( (( web )) && echo ", 80, $https_port")" ||
-    warn "ufw включить не удалось"
-}
-
-ensure_docker() {
-  has docker && docker compose version >/dev/null 2>&1 && return 0
-  step "Docker"
-  # Официальный установщик Docker (так же ставит TelegramOnly).
-  curl -fsSL https://get.docker.com | sh >/dev/null || die "Docker не установился"
-  docker compose version >/dev/null 2>&1 || die "Нет docker compose v2"
-  ok "$(docker --version)"
+    { warn "ufw включить не удалось"; return; }
+  (( ${#kept[@]} )) && ok "ufw: сохранён доступ к работающим службам: ${kept[*]}"
+  return 0
 }
 
 ensure_rust() {
@@ -494,48 +455,6 @@ fm_write_env() {  # каталог_сборки
   } >>"$tmp"
   mv -f "$tmp" "$RFM_ENV"
   ok "настройки записаны: $RFM_ENV (секреты на экран не выводятся)"
-}
-
-# Мини-приложение и внутренний API для бота — добавить, если их нет.
-# Существующие строки не меняются. FM_ENV_CHANGED=1, если что-то дописано.
-fm_ensure_bot_settings() {
-  local id='' user='' backed=0
-  FM_ENV_CHANGED=0
-  [[ -f $RFM_ENV ]] || return 0
-  if ! env_has "$RFM_ENV" INTERNAL_BIND_ADDR; then
-    backup_secret_file "$RFM_ENV" "$RFM_BACKUPS" env; backed=1
-    {
-      echo '# Внутренний API только для бота; наружу не открывать (deploy)'
-      echo 'INTERNAL_BIND_ADDR=127.0.0.1:8091'
-      echo "INTERNAL_API_TOKEN=$(openssl rand -hex 32)"
-    } >>"$RFM_ENV"
-    FM_ENV_CHANGED=1
-    ok "включён внутренний API для бота (127.0.0.1:8091)"
-  fi
-  if ! env_has "$RFM_ENV" MINIAPP_ENABLED; then
-    if read -r id user < <(bot_getme); then
-      (( backed )) || backup_secret_file "$RFM_ENV" "$RFM_BACKUPS" env
-      local chunk=1 chunked=1
-      env_has "$RFM_ENV" UPLOAD_CHUNK_SIZE_MB && chunk=0
-      env_has "$RFM_ENV" MAX_CHUNKED_FILE_SIZE_MB && chunked=0
-      {
-        echo '# Мини-приложение «Файлы» в Telegram (deploy)'
-        echo 'MINIAPP_ENABLED=true'
-        echo "TELEGRAM_BOT_ID=$id"
-        echo "TELEGRAM_BOT_USERNAME=$user"
-        (( chunk )) && echo 'UPLOAD_CHUNK_SIZE_MB=8'
-        (( chunked )) && echo 'MAX_CHUNKED_FILE_SIZE_MB=4096'
-      } >>"$RFM_ENV"
-      if ! env_has "$RFM_ENV" PUBLIC_BASE_URL && [[ -n $RFM_DOMAIN ]]; then
-        echo "PUBLIC_BASE_URL=https://$RFM_DOMAIN" >>"$RFM_ENV"
-      fi
-      FM_ENV_CHANGED=1
-      ok "включено мини-приложение для @$user"
-    else
-      warn "Не удалось узнать ID бота (проверьте BOT_TOKEN в $BOT_DIR/.env) — мини-приложение не включено"
-      TODO+=("Включить мини-приложение: после исправления BOT_TOKEN запустите deploy ещё раз")
-    fi
-  fi
 }
 
 fm_install_unit() {  # каталог_сборки
@@ -709,6 +628,8 @@ fm_update() {
     SUMMARY+=("Файловый менеджер: без изменений, $(fm_version)")
     return 0
   fi
+  # Как deploy: на маленьком VPS без swap сборка может вызвать OOM у VPN-служб.
+  setup_swap
   fm_build "$dir" || return 1
   if cmp -s "$dir/target/release/rust-file-manager" "$RFM_BIN" && (( ! FORCE )) && systemctl is-active --quiet "$RFM_UNIT"; then
     ok "собранная программа совпадает с установленной"
@@ -760,215 +681,11 @@ fm_install_fresh() {
     install -o root -g root -m 0755 "$dir/target/release/rust-file-manager" "$RFM_BIN" || die "Не удалось установить программу"
   fi
   fm_write_env "$dir"
-  bot_present && fm_ensure_bot_settings
   fm_install_unit "$dir"
   fm_restart_checked "$head" || die "Файловый менеджер не запустился: journalctl -u $RFM_UNIT -n 50"
   state_set RFM_BUILD_DIR "$dir"
   state_set RFM_REF "$ref"
   SUMMARY+=("Файловый менеджер: установлен $(fm_version), https://$RFM_DOMAIN")
-}
-
-# --- Бот ---------------------------------------------------------------------
-# Код бота: свой клон с GitHub. Если код уже доставлен без git (rsync по
-# TelegramOnly DEPLOY.md, вариант B), берём его как есть.
-bot_clone() {
-  [[ -d $BOT_DIR/.git ]] && return 0
-  if [[ -f $BOT_DIR/scripts/install_telegramonly_docker.sh ]]; then
-    warn "Код бота в $BOT_DIR без git — использую как есть; обновлять его post_deploy не сможет"
-    return 0
-  fi
-  if [[ -d $BOT_DIR && -n $(ls -A "$BOT_DIR" 2>/dev/null) ]]; then
-    die "Каталог $BOT_DIR не пустой, но это не код бота — разберите его вручную и запустите deploy снова"
-  fi
-  step "Бот TelegramOnly: скачивание кода"
-  if [[ $BOT_REPO_URL == https://* ]]; then
-    say "Репозиторий TelegramOnly приватный: на запрос Username введите логин GitHub,"
-    say "на запрос Password — токен GitHub с правом чтения этого репозитория"
-  fi
-  if ! git clone -q "$BOT_REPO_URL" "$BOT_DIR"; then
-    rm -rf -- "${BOT_DIR:?}/.git" 2>/dev/null
-    die "Не удалось скачать TelegramOnly ($BOT_REPO_URL). Проверьте токен; если на сервере есть SSH-ключ с доступом, запустите: BOT_REPO_URL=git@github.com:kureinmaxim/TelegramOnly.git deploy"
-  fi
-  ok "код бота: $BOT_DIR, версия $(bot_repo_version)"
-}
-
-bot_pin_compose_files() {  # бот в сети хоста: закрепить compose.host.yaml в .env
-  local label files e=$BOT_DIR/.env
-  label=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$BOT_CONTAINER" 2>/dev/null)
-  [[ $label == *,* ]] || return 0
-  env_has "$e" COMPOSE_FILE && return 0
-  files=$(tr ',' '\n' <<<"$label" | sed "s#^$BOT_DIR/##" | paste -sd: -)
-  backup_secret_file "$e" "$BOT_BACKUPS" env
-  printf '\n# Бот запущен несколькими compose-файлами: docker compose в этом каталоге берёт их все\nCOMPOSE_FILE=%s\n' "$files" >>"$e"
-  ok "в .env бота записано COMPOSE_FILE=$files — пересборка не выбьет бота из его сети"
-}
-
-bot_install_fresh() {
-  bot_clone
-  step "Бот TelegramOnly: установка"
-  ensure_docker
-  if [[ $BOT_NETWORK == host ]]; then
-    [[ -f $BOT_DIR/.env ]] || cp "$BOT_DIR/example.env" "$BOT_DIR/.env"
-    chmod 600 "$BOT_DIR/.env"
-    env_has "$BOT_DIR/.env" COMPOSE_FILE ||
-      printf '\n# Бот в сети хоста: docker compose в этом каталоге берёт оба файла\nCOMPOSE_FILE=compose.yaml:compose.host.yaml\n' >>"$BOT_DIR/.env"
-  fi
-  say "Установщик бота спросит BOT_TOKEN, ваш Telegram ID и публичный адрес сервера"
-  ( cd "$BOT_DIR" && bash scripts/install_telegramonly_docker.sh ) || die "Установка бота не удалась"
-  docker inspect "$BOT_CONTAINER" >/dev/null 2>&1 || die "Контейнер $BOT_CONTAINER не появился"
-  bot_healthy && bot_getme >/dev/null || die "Контейнер есть, но бот не готов: проверьте BOT_TOKEN и доступ к Telegram"
-  ok "бот $(bot_container_version) запущен, сеть $(bot_net)"
-  SUMMARY+=("Бот TelegramOnly: установлен $(bot_container_version), Docker, сеть $(bot_net)")
-}
-
-bot_update() {
-  local flavor before after behind ahead cver rver old_head before_ver
-  flavor=$(bot_flavor)
-  step "Бот TelegramOnly: обновление"
-  if [[ -n $(git -C "$BOT_DIR" status --porcelain --untracked-files=no 2>/dev/null) ]]; then
-    warn "В $BOT_DIR изменены файлы — бота не обновляю:"; git -C "$BOT_DIR" status --short | head -5 >&2
-    SUMMARY+=("Бот: пропущен — в $BOT_DIR есть несохранённые правки"); return 1
-  fi
-  [[ $flavor == docker ]] && bot_pin_compose_files
-  git -C "$BOT_DIR" fetch -q origin main || { fail "git fetch не прошёл (нужен токен GitHub?)"; SUMMARY+=("Бот: не обновлён — git fetch не прошёл"); return 1; }
-  behind=$(git -C "$BOT_DIR" rev-list --count HEAD..origin/main)
-  ahead=$(git -C "$BOT_DIR" rev-list --count origin/main..HEAD)
-  rver=$(git -C "$BOT_DIR" show origin/main:pyproject.toml 2>/dev/null | grep -m1 -E '^version' | cut -d'"' -f2)
-  cver=$(bot_running_version)
-  say "работает: ${cver:-?}, на GitHub: ${rver:-?}"
-  if (( ahead > 0 )); then
-    warn "В $BOT_DIR есть свои коммиты ($ahead), которых нет на GitHub — не обновляю"
-    SUMMARY+=("Бот: пропущен — локальные коммиты в $BOT_DIR"); return 1
-  fi
-  if (( behind == 0 )) && [[ $cver == "$(bot_repo_version)" ]] && (( ! FORCE )) && bot_healthy; then
-    ok "уже последняя версия"; SUMMARY+=("Бот: без изменений, $cver"); return 0
-  fi
-  old_head=$(git -C "$BOT_DIR" rev-parse HEAD)
-  before_ver=$cver
-  git -C "$BOT_DIR" merge -q --ff-only origin/main || { fail "git merge --ff-only не прошёл"; return 1; }
-  if [[ $flavor == docker ]]; then
-    before=$(bot_net)
-    ( cd "$BOT_DIR" && bash scripts/rebuild_bot.sh ) || { fail "rebuild_bot.sh завершился с ошибкой"; return 1; }
-    after=$(bot_net)
-    if [[ $before != "$after" ]]; then
-      fail "сеть бота изменилась — обновление не подтверждено; проверьте COMPOSE_FILE"
-      return 1
-    fi
-    cver=$(bot_container_version)
-    if [[ $cver != "$(bot_repo_version)" ]]; then
-      fail "в контейнере $cver, а в репозитории $(bot_repo_version) — образ не пересобрался"
-      SUMMARY+=("Бот: ОШИБКА — образ не пересобрался (см. вывод rebuild_bot.sh)"); return 1
-    fi
-  else
-    if (( FORCE )) || ! git -C "$BOT_DIR" diff --quiet "$old_head" HEAD -- requirements.txt; then
-      [[ -x $BOT_DIR/venv/bin/pip ]] || { fail "Нет pip в venv — зависимости бота не обновлены"; return 1; }
-      "$BOT_DIR/venv/bin/pip" install -q -r "$BOT_DIR/requirements.txt" ||
-        { fail "pip install не прошёл — бота не перезапускаю. После исправления: post_deploy --only bot --force"; return 1; }
-    fi
-    systemctl restart "$BOT_UNIT" || { fail "$BOT_UNIT не перезапустился"; return 1; }
-    sleep "$WAIT_SECONDS"
-    systemctl is-active --quiet "$BOT_UNIT" || { fail "$BOT_UNIT не запустился"; return 1; }
-  fi
-  ok "бот $(bot_running_version)"
-  SUMMARY+=("Бот TelegramOnly: ${before_ver:-?} → $(bot_running_version)")
-}
-
-bot_recreate() {
-  case $(bot_flavor) in
-    docker)
-      bot_pin_compose_files
-      ( cd "$BOT_DIR" &&
-        { [[ ! -f scripts/rebuild_guard.py ]] || python3 scripts/rebuild_guard.py "$BOT_CONTAINER"; } &&
-        docker compose up -d --no-deps --force-recreate "$BOT_SERVICE" >/dev/null 2>&1 ) ;;
-    systemd) systemctl restart "$BOT_UNIT" ;;
-  esac
-}
-
-# Адрес внутреннего API, по которому бот достаёт файловый менеджер. Для сети
-# bridge ставит мост socat на шлюзе docker-сети и открывает его только для неё.
-bot_files_url() {
-  local net gw subnet unit=$UNIT_DIR/$BRIDGE_UNIT
-  if [[ $(bot_flavor) == systemd ]]; then echo http://127.0.0.1:8091; return; fi
-  net=$(bot_net)
-  if [[ $net == host ]]; then echo http://127.0.0.1:8091; return; fi
-  gw=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' "$BOT_CONTAINER" 2>/dev/null)
-  [[ $gw =~ ^[0-9]+(\.[0-9]+){3}$ ]] || { fail "не удалось узнать шлюз docker-сети бота"; return 1; }
-  subnet=$(docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' "$net" 2>/dev/null)
-  has socat || DEBIAN_FRONTEND=noninteractive apt-get install -y -q socat >/dev/null
-  if [[ ! -f $unit ]]; then
-    cat >"$unit" <<EOF
-# socat-мост: бот TelegramOnly (docker-сеть bridge) → внутренний API rust-file-manager.
-# Создано командой deploy (rfm-vps). Шлюз docker-сети: $gw.
-[Unit]
-Description=socat bridge: docker gateway -> rust-file-manager internal API
-After=docker.service $RFM_UNIT
-Requires=docker.service
-
-[Service]
-ExecStart=/usr/bin/socat TCP-LISTEN:8091,bind=$gw,fork,reuseaddr TCP:127.0.0.1:8091
-Restart=always
-RestartSec=3
-DynamicUser=true
-NoNewPrivileges=true
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    systemctl daemon-reload
-    systemctl enable --now "$BRIDGE_UNIT" >/dev/null 2>&1 || { fail "мост $BRIDGE_UNIT не запустился"; return 1; }
-    ok "мост socat $gw:8091 → 127.0.0.1:8091" >&2
-  fi
-  if has ufw && ufw status 2>/dev/null | grep -q 'Status: active' && [[ -n $subnet ]]; then
-    ufw allow from "$subnet" to "$gw" port 8091 proto tcp >/dev/null && ok "ufw: 8091 открыт только для $subnet" >&2
-  fi
-  echo "http://$gw:8091"
-}
-
-# Связать бота с файловым менеджером: настройки на обеих сторонах, без вывода ключей.
-link_bot_fm() {
-  local e=$BOT_DIR/.env token url public changed=0
-  bot_present && fm_present || return 0
-  step "Связка бота и файлового менеджера"
-  fm_ensure_bot_settings
-  if (( FM_ENV_CHANGED )); then
-    fm_restart_checked || { fail "файловый менеджер не запустился с новыми настройками"; return 1; }
-  fi
-  token=$(env_get "$RFM_ENV" INTERNAL_API_TOKEN)
-  public=$(env_get "$RFM_ENV" PUBLIC_BASE_URL)
-  [[ -n $token && -n $public ]] || { warn "в настройках файлового менеджера нет INTERNAL_API_TOKEN или PUBLIC_BASE_URL"; return 1; }
-  public=${public%/}
-  if [[ $(env_get "$e" FILES_SERVICE_TOKEN) != "$token" ||
-        -z $(env_get "$e" FILES_MINIAPP_URL) || -z $(env_get "$e" FILES_INTERNAL_URL) ]]; then
-    url=$(env_get "$e" FILES_INTERNAL_URL)
-    [[ -n $url ]] || { url=$(bot_files_url) || return 1; }
-    backup_secret_file "$e" "$BOT_BACKUPS" env
-    env_put "$e" FILES_SERVICE_TOKEN "$token" || return 1
-    if [[ -z $(env_get "$e" FILES_MINIAPP_URL) ]]; then
-      env_put "$e" FILES_MINIAPP_URL "$public/tg/" || return 1
-    fi
-    if [[ -z $(env_get "$e" FILES_INTERNAL_URL) ]]; then
-      env_put "$e" FILES_INTERNAL_URL "$url" || return 1
-    fi
-    if [[ -z $(env_get "$e" FILES_MENU_BUTTON) ]]; then
-      env_put "$e" FILES_MENU_BUTTON webapp || return 1
-    fi
-    changed=1
-    ok "в .env бота настроены FILES_* (адрес $url), ключи совпадают"
-  else
-    ok "бот уже связан с файловым менеджером, ключи совпадают"
-  fi
-  if (( changed )); then
-    bot_recreate || { fail "Бот не перезапустился после настройки связки"; return 1; }
-    say "Жду, пока бот запустится…"
-    for _ in $(seq 1 12); do
-      sleep "$WAIT_SECONDS"
-      if [[ $(bot_flavor) == docker ]] && docker logs --since 3m "$BOT_CONTAINER" 2>&1 | grep -q 'files: кнопки меню'; then break; fi
-      [[ $(bot_flavor) == systemd ]] && break
-    done
-    [[ $(bot_flavor) == docker ]] && docker logs --since 3m "$BOT_CONTAINER" 2>&1 | grep -E 'files: кнопки меню' | tail -1 | sed 's/^/    /'
-    bot_healthy || { fail "Бот не работает после настройки связки"; return 1; }
-    SUMMARY+=("Связка: настройки записаны, бот запущен; доступ проверьте через /files_status")
-  fi
 }
 
 # --- Самообновление команд ---------------------------------------------------
@@ -1006,14 +723,53 @@ self_update() {
   RFM_VPS_REEXEC=1 exec "$cur" "$CMD" "${ORIG_ARGS[@]}"
 }
 
+# Сервер с клоном бота автора: команды сами переходят на полную версию
+# (бот и файловый менеджер) из этого клона, как только она там есть. Порядок
+# слияния репозиториев и ручной setup тогда не важны, бот не остаётся без
+# обновлений. Без клона (обычный пользователь) ничего не происходит.
+handover_to_full() {
+  local clone=${FULL_SCRIPT%/scripts/*} rel tmp
+  [[ ${RFM_VPS_HANDOVER:-} == 1 || $clone == "$FULL_SCRIPT" || ! -d $clone/.git ]] && return 0
+  rel=${FULL_SCRIPT#"$clone"/}
+  tmp=$(mktemp) || return 0
+  if [[ -f $FULL_SCRIPT ]]; then
+    cp "$FULL_SCRIPT" "$tmp"
+  else
+    # Приватный репозиторий: без запроса пароля; нет доступа — последняя полученная версия.
+    GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=${GIT_SSH_COMMAND:-ssh -o BatchMode=yes} \
+      timeout 30 git -C "$clone" fetch -q origin main 2>/dev/null
+    git -C "$clone" show "origin/main:$rel" >"$tmp" 2>/dev/null || : >"$tmp"
+  fi
+  if ! grep -q "$FULL_CMD" "$tmp" || ! bash -n "$tmp" 2>/dev/null; then
+    rm -f "$tmp"
+    warn "На сервере есть бот, а полной версии команд ($FULL_CMD) в его репозитории пока нет — обновляю только файловый менеджер"
+    SUMMARY+=("Бот: не обновлён — эта версия команд обслуживает только файловый менеджер")
+    TODO+=("Когда в репозитории бота появится $rel, запустите команду ещё раз: она перейдёт на полную версию сама")
+    return 0
+  fi
+  say "На сервере есть бот — перехожу на полную версию команд ($FULL_CMD: бот и файловый менеджер)"
+  if ! RFM_VPS_HANDOVER=1 bash "$tmp" setup; then
+    rm -f "$tmp"
+    warn "Полная версия команд не установилась — обновляю только файловый менеджер"
+    SUMMARY+=("Бот: не обновлён — полная версия команд не установилась (см. вывод выше)")
+    return 0
+  fi
+  rm -f "$tmp"
+  RFM_VPS_HANDOVER=1 exec "$CMD_DIR/$FULL_CMD" "$CMD" "${ORIG_ARGS[@]}"
+}
+
 # --- Команды -----------------------------------------------------------------
 cmd_setup() {
-  local tmp src name
+  local tmp src name target
   [[ $EUID -eq 0 ]] || die "Запустите от root"
   install -d -m 0755 "$CMD_DIR"
   for name in deploy post_deploy post-deploy; do
-    if [[ -e $CMD_DIR/$name || -L $CMD_DIR/$name ]] &&
-      [[ ! -L $CMD_DIR/$name || $(readlink "$CMD_DIR/$name") != rfm-vps ]]; then
+    [[ -e $CMD_DIR/$name || -L $CMD_DIR/$name ]] || continue
+    target=$(readlink "$CMD_DIR/$name" 2>/dev/null)
+    # Полная версия уже обслуживает и файловый менеджер — её не заменяем.
+    [[ $target == "$FULL_CMD" ]] &&
+      die "$CMD_DIR/$name — полная версия команд ($FULL_CMD): она уже обновляет файловый менеджер. setup ничего не заменяет"
+    if [[ ! -L $CMD_DIR/$name || $target != rfm-vps ]]; then
       die "$CMD_DIR/$name уже занят другой командой — setup ничего не заменяет. Выберите другой CMD_DIR"
     fi
   done
@@ -1033,8 +789,8 @@ cmd_setup() {
   ok "команды установлены в $CMD_DIR из $src"
   cat <<EOF
 
-    deploy        — установить на этот сервер бота и файловый менеджер (только то, чего нет)
-    post_deploy   — обновить то, что уже установлено
+    deploy         — установить файловый менеджер, nginx и HTTPS (только то, чего нет)
+    post_deploy    — обновить установленный файловый менеджер
     rfm-vps status — что сейчас стоит на сервере
 
 EOF
@@ -1046,53 +802,64 @@ cmd_status() {
   return 0
 }
 
+# Порты нового файлового менеджера и его nginx. Занятые VPN-службами (Xray,
+# XHTTP на 8080, 3x-ui, NaiveProxy…) порты команда не отбирает: останавливается
+# до установки пакетов и долгой сборки.
+fm_ports_check() {
+  local p owner
+  for p in 8080 8091; do
+    owner=$(port_owner "$p")
+    [[ -z $owner ]] || die "Порт $p занят ($owner), а файловый менеджер слушает 127.0.0.1:$p. Освободите порт или установите FM вручную (DEPLOY.md)"
+  done
+  case $HTTPS_MODE in
+    certbot)
+      for p in 80 443; do
+        owner=$(port_owner "$p")
+        [[ -z $owner || $owner == nginx ]] ||
+          die "Порт $p занят ($owner) — certbot через nginx не подойдёт. Выберите HTTPS_MODE=cloudflare или none"
+      done ;;
+    cloudflare)
+      owner=$(port_owner 2083)
+      [[ -z $owner || $owner == nginx ]] || die "Порт 2083 занят ($owner) — выберите HTTPS_MODE=none и свой прокси"
+      owner=$(port_owner 80)
+      if ! has nginx && [[ -n $owner ]]; then
+        die "Порт 80 занят ($owner): новый nginx не запустится. Освободите порт или выберите HTTPS_MODE=none"
+      fi ;;
+  esac
+}
+
 deploy_questions() {
-  local busy443='' target=''
+  local busy443='' others=''
+  fm_present && INSTALL_FM=no || INSTALL_FM=yes
+  [[ $INSTALL_FM == yes ]] || return 0
   step "Вопросы (дальше установка пойдёт сама)"
-  # Новые вопросы только в терминале: сохраняем сценарии с ответами через stdin.
-  if [[ -z $ONLY && -z $INSTALL_BOT && -z $INSTALL_FM ]] && ! bot_present && ! fm_present && [[ -t 0 ]] && (( ! ASSUME_YES )); then
-    ask_choice target "Что установить: оба проекта, только бот или только файлы" both "both bot fm"
-    [[ $target == both ]] || ONLY=$target
-  fi
-  if [[ -z $INSTALL_BOT ]]; then
-    if bot_present; then INSTALL_BOT=no; elif [[ $ONLY == fm ]]; then INSTALL_BOT=no; else INSTALL_BOT=yes; fi
-  fi
-  if [[ -z $INSTALL_FM ]]; then
-    if fm_present; then INSTALL_FM=no; elif [[ $ONLY == bot ]]; then INSTALL_FM=no; else INSTALL_FM=yes; fi
-  fi
-  [[ $ONLY == fm ]] && INSTALL_BOT=no
-  [[ $ONLY == bot ]] && INSTALL_FM=no
-  [[ $INSTALL_BOT == yes || $INSTALL_BOT == no ]] || die "INSTALL_BOT: yes или no"
-  [[ $INSTALL_FM == yes || $INSTALL_FM == no ]] || die "INSTALL_FM: yes или no"
-  bot_present && INSTALL_BOT=no
-  fm_present && INSTALL_FM=no
-  if [[ $INSTALL_FM == no && $INSTALL_BOT == no ]]; then return 0; fi
-  if [[ $INSTALL_BOT == yes ]]; then
-    ask_choice BOT_NETWORK "Сеть Docker для бота: bridge — обычная, host — если боту нужна mesh-сеть Tailscale/Headscale" bridge "bridge host"
-  fi
-  if [[ $INSTALL_FM == yes ]]; then
-    while [[ ! $RFM_DOMAIN =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}$ ]]; do
-      [[ -n $RFM_DOMAIN ]] && warn "Это не похоже на домен: $RFM_DOMAIN"
-      RFM_DOMAIN=''
-      ask RFM_DOMAIN "Домен файлового менеджера (A-запись на этот сервер), например files.example.com"
-      (( ASSUME_YES )) && [[ ! $RFM_DOMAIN =~ \. ]] && die "Задайте RFM_DOMAIN"
-    done
-    ss -tlnH 2>/dev/null | awk '{print $4}' | grep -qE ':443$' && busy443=1
-    if [[ -n $busy443 ]]; then say "Порт 443 уже занят другим сервисом — подойдёт Cloudflare на порт 2083"; fi
-    ask_choice HTTPS_MODE "HTTPS: certbot — 443 свободен; cloudflare — через Cloudflare на 2083; none — свой прокси" \
-      "$([[ -n $busy443 ]] && echo cloudflare || echo certbot)" "certbot cloudflare none"
-    [[ $HTTPS_MODE == certbot ]] && ask LE_EMAIL "Почта для Let's Encrypt (Enter — без почты)" ""
-    ask RFM_ADMIN_LOGIN "Логин администратора сайта" admin
-    [[ -e $RFM_ENV ]] || ask_password
-  fi
+  while [[ ! $RFM_DOMAIN =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}$ ]]; do
+    [[ -n $RFM_DOMAIN ]] && warn "Это не похоже на домен: $RFM_DOMAIN"
+    RFM_DOMAIN=''
+    ask RFM_DOMAIN "Домен файлового менеджера (A-запись на этот сервер), например files.example.com"
+    (( ASSUME_YES )) && [[ ! $RFM_DOMAIN =~ \. ]] && die "Задайте RFM_DOMAIN"
+  done
+  ss -tlnH 2>/dev/null | awk '{print $4}' | grep -qE ':443$' && busy443=1
+  if [[ -n $busy443 ]]; then say "Порт 443 уже занят другим сервисом — подойдёт Cloudflare на порт 2083"; fi
+  ask_choice HTTPS_MODE "HTTPS: certbot — 443 свободен; cloudflare — через Cloudflare на 2083; none — свой прокси" \
+    "$([[ -n $busy443 ]] && echo cloudflare || echo certbot)" "certbot cloudflare none"
+  fm_ports_check
+  [[ $HTTPS_MODE == certbot ]] && ask LE_EMAIL "Почта для Let's Encrypt (Enter — без почты)" ""
+  ask RFM_ADMIN_LOGIN "Логин администратора сайта" admin
+  [[ -e $RFM_ENV ]] || ask_password
   if [[ -z $ENABLE_UFW ]] && has ufw && ! ufw status 2>/dev/null | grep -q 'Status: active'; then
-    if confirm "Включить файрвол ufw (SSH, 80 и порт HTTPS)?" y; then ENABLE_UFW=yes; else ENABLE_UFW=no; fi
+    others=$(public_listeners | awk '$2 != "sshd" {printf "%s%s(%s)", sep, $1, $2; sep = " "}')
+    if [[ -n $others ]]; then
+      # Рабочий сервер (VPN и др.): файрвол только по явному согласию, --yes его не включает.
+      say "ufw выключен, а на сервере уже работают службы: $others"
+      say "Если включить ufw, эти порты останутся открыты; службы, которые сейчас остановлены, закроются"
+      if confirm "Включить ufw?" n; then ENABLE_UFW=yes; else ENABLE_UFW=no; fi
+    elif confirm "Включить файрвол ufw (SSH, 80 и порт HTTPS)?" y; then ENABLE_UFW=yes; else ENABLE_UFW=no; fi
   fi
   step "План"
-  [[ $INSTALL_BOT == yes ]] && say "• бот TelegramOnly в Docker, сеть $BOT_NETWORK"
-  [[ $INSTALL_FM == yes ]] && say "• файловый менеджер на https://$RFM_DOMAIN, HTTPS: $HTTPS_MODE, логин $RFM_ADMIN_LOGIN"
-  if { bot_present || [[ $INSTALL_BOT == yes ]]; } && { fm_present || [[ $INSTALL_FM == yes ]]; }; then
-    say "• связать бота с файловым менеджером (мини-приложение «Файлы», уведомления)"
+  say "• файловый менеджер на https://$RFM_DOMAIN, HTTPS: $HTTPS_MODE, логин $RFM_ADMIN_LOGIN"
+  if [[ $ENABLE_UFW == yes ]] && ! ufw status 2>/dev/null | grep -q 'Status: active'; then
+    say "• включить ufw: SSH, порты сайта и уже работающих служб"
   fi
   confirm "Начинаем?" y || die "Отменено"
 }
@@ -1101,16 +868,16 @@ cmd_deploy() {
   local rc=0
   preflight
   self_update
+  handover_to_full
   take_lock
   print_status
   deploy_questions
   [[ -n $HTTPS_MODE ]] || HTTPS_MODE=$(state_get HTTPS_MODE)
-  if [[ $INSTALL_FM == no && $INSTALL_BOT == no ]]; then
-    step "Всё уже установлено"
+  if [[ $INSTALL_FM == no ]]; then
+    step "Файловый менеджер уже установлен"
     # Повторный deploy доделывает то, что в прошлый раз отложено: например,
     # nginx на 2083 после того, как положили сертификат Cloudflare.
-    if fm_present; then fm_nginx || rc=1; fi
-    link_bot_fm || rc=1
+    fm_nginx || rc=1
     final_checks || rc=1
     say "Для обновления используйте: post_deploy"
     print_summary
@@ -1118,130 +885,75 @@ cmd_deploy() {
   fi
   INSTALLED_NOW=1
   install_packages
-  # Код бота — сразу после git: запрос токена GitHub и ошибка доступа видны в
-  # начале, до Docker и долгой сборки.
-  [[ $INSTALL_BOT == yes ]] && bot_clone
   step "Подготовка сервера"
-  setup_sysctl
   setup_swap
   setup_firewall
-  [[ $INSTALL_BOT == yes ]] && bot_install_fresh
-  [[ $INSTALL_FM == yes ]] && fm_install_fresh
-  if fm_present && [[ -n $HTTPS_MODE ]]; then
+  fm_install_fresh
+  if [[ -n $HTTPS_MODE ]]; then
     step "nginx и HTTPS"
     fm_nginx || rc=1
     state_set HTTPS_MODE "$HTTPS_MODE"
   fi
-  link_bot_fm || rc=1
   final_checks || rc=1
   print_summary
   return "$rc"
 }
 
 post_deploy_questions() {
-  local target=''
   step "План обновления"
-  if [[ -t 0 ]] && (( ! ASSUME_YES )); then
-    if [[ -z $ONLY ]] && fm_present && bot_present; then
-      ask_choice target "Что обновить: оба проекта, только бот или только файлы" both "both bot fm"
-      [[ $target == both ]] || ONLY=$target
-    fi
-    if fm_present && [[ $ONLY != bot ]] && (( ! BACKUP_DATA )); then
-      confirm "Сохранить архив данных файлового менеджера (потребуется место и короткая остановка)?" n && BACKUP_DATA=1
-    fi
+  if [[ -t 0 ]] && (( ! ASSUME_YES )) && (( ! BACKUP_DATA )); then
+    confirm "Сохранить архив данных файлового менеджера (потребуется место и короткая остановка)?" n && BACKUP_DATA=1
   fi
-  fm_present && [[ $ONLY != bot ]] && say "• файловый менеджер: ${RFM_REF:-$(state_get RFM_REF)} (пустое значение = main); копия старой программы и проверка с откатом"
-  bot_present && [[ $ONLY != fm ]] && say "• бот: main; сохранить текущую сеть и пересобрать только бота"
+  say "• файловый менеджер: ${RFM_REF:-$(state_get RFM_REF)} (пустое значение = main); копия старой программы и проверка с откатом"
+  if swap_needed; then
+    say "• если понадобится сборка: swap 2 ГБ (памяти $(mem_mb) МБ, swap нет), при свободных 3 ГБ на диске"
+  fi
+  (( BACKUP_DATA )) && say "• перед заменой программы: архив данных (служба на это время остановится)"
   if [[ -t 0 ]] && (( ! ASSUME_YES )); then
     confirm "Обновляем по этому плану?" y || die "Отменено"
   fi
 }
 
 cmd_post_deploy() {
-  local any=0 rc=0
+  local rc=0
   [[ $EUID -eq 0 ]] || die "Запустите от root: sudo -i, затем команду ещё раз"
   # Проверка не должна заменять установленные команды или перезапускать себя.
-  if (( ! CHECK_ONLY )); then self_update; take_lock; fi
+  if (( ! CHECK_ONLY )); then self_update; handover_to_full; take_lock; fi
   print_status
-  fm_present && any=1
-  bot_present && any=1
-  if (( ! any )); then
-    step "На сервере нет ни бота, ни файлового менеджера"
+  if ! fm_present; then
+    step "Файловый менеджер не установлен"
     say "Для установки с нуля: deploy"
     return 1
   fi
-  [[ $ONLY == fm ]] && ! fm_present && die "Файловый менеджер не установлен. Используйте deploy --only fm"
-  [[ $ONLY == bot ]] && ! bot_present && die "Бот не установлен. Используйте deploy --only bot"
   if (( CHECK_ONLY )); then check_updates; return $?; fi
   post_deploy_questions
-  # Сначала файловый менеджер, потом бот: новые функции бота опираются на API
-  # файлового менеджера, а две сборки сразу на маленьком VPS опасны.
-  if fm_present && [[ $ONLY != bot ]]; then
-    fm_update && fm_nginx_uploads || rc=1
-  fi
-  if bot_present && [[ $ONLY != fm ]]; then
-    if (( rc )); then
-      warn "Файловый менеджер или nginx не прошли проверку — зависимое обновление бота пропущено"
-      SUMMARY+=("Бот: пропущен после ошибки файлового менеджера")
-    elif [[ -d $BOT_DIR/.git ]]; then
-      bot_update || rc=1
-    else
-      warn "Нет $BOT_DIR/.git — бота не обновляю"
-      SUMMARY+=("Бот: пропущен — код доставлен без git; обновите его прежним способом")
-      rc=1
-    fi
-  fi
-  # --only изолирует выбранный проект, включая настройку и перезапуски связки.
-  if [[ -z $ONLY ]] && (( ! rc )); then link_bot_fm || rc=1; fi
+  fm_update && fm_nginx_uploads || rc=1
   final_checks || rc=1
   print_summary
   return "$rc"
 }
 
 check_updates() {
-  local dir ref remote running rver rc=0
+  local ref remote running rc=0
   step "Доступные обновления (программы и настройки не меняю)"
-  if fm_present && [[ $ONLY != bot ]]; then
-    dir=$(fm_build_dir); ref=${RFM_REF:-$(state_get RFM_REF)}; ref=${ref:-main}
-    remote=$(git ls-remote "$RFM_REPO_URL" "$ref" "$ref^{}" 2>/dev/null | tail -1 | cut -f1)
-    running=$(fm_commit); running=${running%-dirty}
-    if [[ -z $remote ]]; then warn "не удалось узнать $ref на GitHub"; rc=1
-    elif [[ -n $running && $remote == "$running"* ]]; then ok "файловый менеджер: последняя версия ($running)"
-    else say "файловый менеджер: есть обновление ${running:-?} → ${remote:0:7}"; fi
-  fi
-  if bot_present && [[ $ONLY != fm ]] && [[ -d $BOT_DIR/.git ]]; then
-    if git -C "$BOT_DIR" fetch -q origin main 2>/dev/null; then
-      rver=$(git -C "$BOT_DIR" show origin/main:pyproject.toml 2>/dev/null | grep -m1 -E '^version' | cut -d'"' -f2)
-      if [[ $(git -C "$BOT_DIR" rev-list --count HEAD..origin/main) == 0 ]]; then ok "бот: последняя версия ($(bot_running_version))"
-      else say "бот: есть обновление $(bot_running_version) → $rver"; fi
-    else
-      warn "бот: git fetch не прошёл"; rc=1
-    fi
-  elif bot_present && [[ $ONLY != fm ]]; then
-    warn "Нет $BOT_DIR/.git — проверить обновление бота невозможно"; rc=1
-  fi
+  ref=${RFM_REF:-$(state_get RFM_REF)}; ref=${ref:-main}
+  remote=$(git ls-remote "$RFM_REPO_URL" "$ref" "$ref^{}" 2>/dev/null | tail -1 | cut -f1)
+  running=$(fm_commit); running=${running%-dirty}
+  if [[ -z $remote ]]; then warn "не удалось узнать $ref на GitHub"; rc=1
+  elif [[ -n $running && $remote == "$running"* ]]; then ok "файловый менеджер: последняя версия ($running)"
+  else say "файловый менеджер: есть обновление ${running:-?} → ${remote:0:7}"; fi
   say "Обновить: post_deploy"
   return "$rc"
 }
 
 final_checks() {
-  local user rc=0
+  local rc=0
   step "Проверка"
-  if fm_present && [[ $ONLY != bot ]]; then
-    if systemctl is-active --quiet "$RFM_UNIT"; then ok "файловый менеджер $(fm_version) работает"
-    else fail "файловый менеджер не работает"; rc=1; fi
-  fi
-  if bot_present && [[ $ONLY != fm ]]; then
-    if bot_healthy; then ok "бот $(bot_running_version) $([[ $(bot_flavor) == docker ]] && echo "(сеть $(bot_net))")"
-    else fail "бот не работает"; rc=1; fi
-  fi
-  if fm_present && bot_present && [[ $(env_get "$RFM_ENV" MINIAPP_ENABLED) == true ]]; then
-    user=$(env_get "$RFM_ENV" TELEGRAM_BOT_USERNAME)
-    TODO+=("Проверьте в Telegram: /version, /files_status; кнопка «Файлы» у привязанных")
-    if (( INSTALLED_NOW )); then
-      TODO+=("@BotFather → /mybots → @$user → Bot Settings → Configure Mini App → Enable Mini App → $(env_get "$RFM_ENV" PUBLIC_BASE_URL)/tg/")
-      TODO+=("Откройте https://t.me/$user?startapp и войдите логином администратора — так ваш Telegram станет администратором файлов")
-    fi
+  if systemctl is-active --quiet "$RFM_UNIT"; then ok "файловый менеджер $(fm_version) работает"
+  else fail "файловый менеджер не работает"; rc=1; fi
+  if (( INSTALLED_NOW )); then
+    TODO+=("Войдите на $(env_get "$RFM_ENV" PUBLIC_BASE_URL)/login логином администратора и пригласите участников")
+    TODO+=("По желанию: мини-приложение для Telegram и API для своего бота — TELEGRAM_MINIAPP.md")
   fi
   return "$rc"
 }
@@ -1259,15 +971,15 @@ print_summary() {
 
 usage() {
   cat <<'EOF'
-rfm-vps — бот TelegramOnly и rust-file-manager на одном VPS
+rfm-vps — установка и обновление rust-file-manager на VPS
 
-  deploy [--only bot|fm] [--ref REF] [--yes]
-      Установить то, чего на сервере нет, и связать бота с файловым менеджером.
+  deploy [--ref REF] [--yes]
+      Установить файловый менеджер, nginx и HTTPS, если их ещё нет.
       Сначала задаёт все вопросы, потом ставит сам.
-  post_deploy [--check] [--only bot|fm] [--ref REF] [--force] [--backup-data] [--yes]
-      Обновить установленное. --check — только показать, есть ли обновления.
-      В терминале спрашивает выбор проекта, архив данных и подтверждение плана.
-      --yes — выполнить без этих вопросов. --only — не менять второй проект.
+  post_deploy [--check] [--ref REF] [--force] [--backup-data] [--yes]
+      Обновить установленный файловый менеджер. --check — только показать,
+      есть ли обновление. В терминале спрашивает архив данных и подтверждение
+      плана; --yes — выполнить без этих вопросов.
       --ref закрепляет выпуск для следующих запусков (вернуться: --ref main).
       --force — пересобрать и перезапустить, даже если версия та же.
       --backup-data — перед заменой программы сохранить архив данных.
@@ -1293,14 +1005,16 @@ main() {
       --force) FORCE=1 ;;
       --check) CHECK_ONLY=1 ;;
       --backup-data) BACKUP_DATA=1 ;;
-      --only) [[ -n ${2:-} && ${2:-} != -* ]] || die "--only требует bot или fm"; ONLY=$2; shift ;;
+      --only)
+        # Прежний параметр: файловый менеджер — единственный проект этой команды.
+        [[ ${2:-} == fm ]] || die "--only: эта команда обслуживает только файловый менеджер (--only fm)"
+        shift ;;
       --ref) [[ -n ${2:-} && ${2:-} != -* ]] || die "--ref требует ветку или тег"; RFM_REF=$2; shift ;;
       -h|--help) usage; return 0 ;;
       *) die "Неизвестный параметр: $1 (см. --help)" ;;
     esac
     shift
   done
-  [[ -z $ONLY || $ONLY == bot || $ONLY == fm ]] || die "--only: bot или fm"
   case $CMD in
     setup) cmd_setup ;;
     deploy) cmd_deploy ;;

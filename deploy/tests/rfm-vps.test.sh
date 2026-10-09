@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Тесты deploy/rfm-vps.sh (команды deploy и post_deploy) в песочнице.
+# Тесты deploy/rfm-vps.sh (deploy и post_deploy файлового менеджера) в песочнице.
 #
 # systemd, Docker, apt, ufw, nginx, certbot и curl подменены заглушками, GitHub —
 # локальными git-репозиториями, сборка Rust — заглушкой cargo. Настоящая система
@@ -36,20 +36,19 @@ new_sandbox() {
   : >"$SB/calls.log"; : >"$SB/etc/fstab"; : >"$SB/cargo-env"
   write_stubs
   make_rfm_repo
-  make_bot_repo
   export PATH="$SB/bin:$ORIG_PATH"
-  export RFM_REPO_URL="file://$SB/repos/rfm.git" BOT_REPO_URL="file://$SB/repos/bot.git"
+  export RFM_REPO_URL="file://$SB/repos/rfm.git"
   export RFM_VPS_RAW="file://$SB/raw" RFM_UNIT=rust-file-manager.service
   export RFM_BIN=$SB/usr/local/bin/rust-file-manager UNIT_DIR=$SB/etc/systemd/system
   export RFM_ENV=$SB/etc/rust-file-manager/env RFM_DATA=$SB/var/lib/rust-file-manager
-  export RFM_BACKUPS=$SB/var/backups/rust-file-manager BOT_DIR=$SB/opt/TelegramOnly
-  export BOT_BACKUPS=$SB/var/backups/telegramonly BUILD_ROOT=$SB/root STATE_FILE=$SB/etc/rfm-vps.conf
+  export RFM_BACKUPS=$SB/var/backups/rust-file-manager FULL_SCRIPT=$SB/opt/full/tgo-vps.sh
+  export BUILD_ROOT=$SB/root STATE_FILE=$SB/etc/rfm-vps.conf
   export CMD_DIR=$SB/usr/local/sbin NGINX_DIR=$SB/etc/nginx LE_DIR=$SB/etc/letsencrypt
-  export SYSCTL_FILE=$SB/etc/sysctl.d/99-tcp-mtu-probing.conf SWAP_FILE=$SB/swapfile
+  export SWAP_FILE=$SB/swapfile
   export LOCK_FILE=$SB/run/rfm-vps.lock CARGO_ENV=$SB/cargo-env FM_USER=root FSTAB=$SB/etc/fstab
-  export POLL_SECONDS=1 WAIT_SECONDS=1
+  export POLL_SECONDS=1
   export SSH_CONNECTION="203.0.113.5 50000 203.0.113.10 22"
-  unset RFM_DOMAIN HTTPS_MODE LE_EMAIL RFM_ADMIN_LOGIN BOT_NETWORK ENABLE_UFW INSTALL_BOT INSTALL_FM
+  unset RFM_DOMAIN HTTPS_MODE LE_EMAIL RFM_ADMIN_LOGIN ENABLE_UFW
 }
 
 stub() {  # имя тело
@@ -98,6 +97,7 @@ case ${1:-} in
   restart|start) start_unit "$2" ;;
   stop) rm -f "$st/active-$2" ;;
   enable) [[ ${2:-} == --now ]] && start_unit "$3"; exit 0 ;;
+  show) [[ -f $st/workdir ]] && cat "$st/workdir"; exit 0 ;;
   *) exit 0 ;;
 esac'
   stub journalctl '
@@ -106,27 +106,8 @@ for a in "$@"; do [[ $prev == --since ]] && since=${a#@}; prev=$a; done
 [[ -f $SB/state/journal ]] || exit 0
 while IFS="|" read -r t line; do (( t >= since )) && printf "%s\n" "$line"; done <"$SB/state/journal"
 exit 0'
-  stub docker '
-d=$SB/state/docker
-case ${1:-} in
-  inspect)
-    shift; fmt=""; [[ ${1:-} == -f ]] && { fmt=$2; shift 2; }
-    [[ -f $d/container ]] || exit 1
-    case $fmt in
-      "") echo "[{}]" ;;
-      *NetworkMode*) cat "$d/net" ;;
-      *config_files*) cat "$d/label" ;;
-      *Gateway*) [[ $(cat "$d/net") == host ]] || echo 172.18.0.1 ;;
-    esac ;;
-  exec) printf "version = \"%s\"\n" "$(cat "$d/version")" ;;
-  compose) case ${2:-} in version) echo "Docker Compose version v2.29.0" ;; up) echo up >>"$d/recreated" ;; esac ;;
-  logs) grep -q "^FILES_SERVICE_TOKEN=" "$BOT_DIR/.env" 2>/dev/null &&
-          echo "2026-10-09 00:00:00,000 - files_menu - INFO - files: кнопки меню — выставлено 1, сброшено 0, ошибок 0" ;;
-  network) echo 172.18.0.0/16 ;;
-  --version) echo "Docker version 27.0.0 (fake)" ;;
-esac
-exit 0'
-  # curl: локальные проверки, getMe, внутренний API и скачивание самого скрипта.
+  stub docker 'exit 0'  # публичная команда Docker не вызывает
+  # curl: локальные проверки, внутренний API и скачивание самого скрипта.
   stub curl '
 out=""; w=""; kstdin=0; hstdin=0; url=""
 while (( $# )); do
@@ -142,14 +123,6 @@ while (( $# )); do
   shift
 done
 st=$SB/state
-if (( kstdin )); then
-  cfg=$(cat); tok=$(grep -o "bot[0-9]*:[A-Za-z0-9_-]*" <<<"$cfg" | sed "s/^bot//")
-  want=$(sed -n "s/^BOT_TOKEN=//p" "$BOT_DIR/.env")
-  if [[ -n $tok && $tok == "$want" ]]; then
-    echo "{\"ok\":true,\"result\":{\"id\":7000000001,\"is_bot\":true,\"first_name\":\"Files\",\"username\":\"files_example_bot\"}}"
-  else echo "{\"ok\":false}"; fi
-  exit 0
-fi
 code=000
 case $url in
   file://*) cp "${url#file://}" "$out"; exit $? ;;
@@ -202,58 +175,14 @@ rfm_release() {  # версия [BROKEN]
   git_commit_all "$s" "$1" && git -C "$s" push -q "$SB/repos/rfm.git" main
 }
 
-make_bot_repo() {
-  local s=$SB/src/bot
-  mkdir -p "$s/scripts"
-  git init -q -b main "$s"
-  printf '[project]\nname = "telegramonly"\nversion = "3.25.0"\n' >"$s/pyproject.toml"
-  printf 'BOT_TOKEN=your_bot_token_here\nADMIN_USER_IDS=123456789\n' >"$s/example.env"
-  printf '.env\n' >"$s/.gitignore"
-  printf 'services: {}\n' >"$s/compose.yaml"; printf 'services: {}\n' >"$s/compose.host.yaml"
-  printf 'python-telegram-bot\n' >"$s/requirements.txt"
-  cat >"$s/scripts/install_telegramonly_docker.sh" <<'EOF'
-#!/usr/bin/env bash
-cd "$(dirname "$0")/.." || exit 1
-[ -f .env ] || cp example.env .env
-sed -i 's/^BOT_TOKEN=.*/BOT_TOKEN=7000000001:AAFakeTokenForTests_0123456789/' .env
-d=$SB/state/docker
-if grep -q '^COMPOSE_FILE=.*compose.host.yaml' .env; then
-  echo host >"$d/net"; echo "$PWD/compose.yaml,$PWD/compose.host.yaml" >"$d/label"
-else
-  echo telegramonly_default >"$d/net"; echo "$PWD/compose.yaml" >"$d/label"
-fi
-grep -m1 '^version' pyproject.toml | cut -d'"' -f2 >"$d/version"
-touch "$d/container"
-echo "fake installer done"
-EOF
-  # Как настоящий rebuild_bot.sh: без COMPOSE_FILE в .env бот оказывается в bridge.
-  cat >"$s/scripts/rebuild_bot.sh" <<'EOF'
-#!/usr/bin/env bash
-cd "$(dirname "$0")/.." || exit 1
-d=$SB/state/docker
-grep -m1 '^version' pyproject.toml | cut -d'"' -f2 >"$d/version"
-if grep -q '^COMPOSE_FILE=.*compose.host.yaml' .env; then echo host >"$d/net"; else echo telegramonly_default >"$d/net"; fi
-echo "✓ Версия в контейнере: $(cat "$d/version") — совпадает с pyproject.toml."
-EOF
-  git_commit_all "$s" "3.25.0"
-  git clone -q --bare "$s" "$SB/repos/bot.git"
-}
-
-bot_release() {  # версия
-  local s=$SB/src/bot
-  sed -i "s/^version = .*/version = \"$1\"/" "$s/pyproject.toml"
-  git_commit_all "$s" "$1" && git -C "$s" push -q "$SB/repos/bot.git" main
-}
-
 run() {  # вывод_в_файл аргументы… (stdin передаётся дальше)
   local out=$1; shift
   bash "$SCRIPT" "$@" >"$out" 2>&1
 }
 
-no_secrets() {  # файл — в выводе нет пароля, ключей и токена бота
+no_secrets() {  # файл — в выводе нет пароля и ключей
   local f=$1 s
-  for s in "Secret-pass-1" "$(val "$RFM_ENV" INTERNAL_API_TOKEN)" "$(val "$RFM_ENV" SESSION_SECRET)" \
-           "AAFakeTokenForTests_0123456789"; do
+  for s in "Secret-pass-1" "$(val "$RFM_ENV" INTERNAL_API_TOKEN)" "$(val "$RFM_ENV" SESSION_SECRET)"; do
     [[ -z $s ]] && continue
     grep -qF -- "$s" "$f" && return 1
   done
@@ -271,36 +200,30 @@ check "post_deploy без установленного завершается с
 check "и предлагает deploy" has_line "$SB/o1" "Для установки с нуля: deploy"
 run "$SB/o1s" status; rc=$?
 check "status завершается без ошибки" test "$rc" -eq 0
-check "status: ничего не установлено" test "$(count "$SB/o1s" "не установлен")" -eq 2
+check "status: файловый менеджер не установлен" has_line "$SB/o1s" "Файловый менеджер: не установлен"
+check "без клона бота нет подсказки о полной версии" no_line "$SB/o1s" "Полная версия"
 
-echo "2. deploy с нуля: бот в сети хоста, HTTPS через certbot"
+echo "2. deploy с нуля: HTTPS через certbot"
 printf 'Secret-pass-1\nSecret-pass-1\n' |
-  RFM_DOMAIN=files.example.com HTTPS_MODE=certbot BOT_NETWORK=host ENABLE_UFW=yes run "$SB/o2" deploy --yes; rc=$?
+  RFM_DOMAIN=files.example.com HTTPS_MODE=certbot ENABLE_UFW=yes run "$SB/o2" deploy --yes; rc=$?
 check "deploy завершился успешно" test "$rc" -eq 0
-check "контейнер бота создан" test -f "$SB/state/docker/container"
-check "бот закреплён в сети хоста (COMPOSE_FILE)" test "$(val "$BOT_DIR/.env" COMPOSE_FILE)" = compose.yaml:compose.host.yaml
 check "настройки FM с правами 600" test "$(stat -c %a "$RFM_ENV")" = 600
-check "мини-приложение включено для бота из getMe" test "$(val "$RFM_ENV" TELEGRAM_BOT_ID)" = 7000000001
-check "имя бота записано" test "$(val "$RFM_ENV" TELEGRAM_BOT_USERNAME)" = files_example_bot
 check "адрес сайта записан" test "$(val "$RFM_ENV" PUBLIC_BASE_URL)" = https://files.example.com
-check "ключ для бота — 64 символа" test "$(val "$RFM_ENV" INTERNAL_API_TOKEN | tr -d '\n' | wc -c)" -eq 64
 check "хеш пароля bcrypt" has_line "$RFM_ENV" "ADMIN_PASSWORD_HASH='\$2b\$12\$"
 check "в настройках нет повторов" test -z "$(cut -d= -f1 "$RFM_ENV" | grep -v '^#' | sort | uniq -d)"
+check "мини-приложение само не включается" no_line "$RFM_ENV" "MINIAPP_ENABLED"
 check "служба FM запущена" test -f "$SB/state/active-rust-file-manager.service"
-check "в .env бота адрес API через localhost" test "$(val "$BOT_DIR/.env" FILES_INTERNAL_URL)" = http://127.0.0.1:8091
-check "ключи бота и FM совпадают" test "$(val "$BOT_DIR/.env" FILES_SERVICE_TOKEN)" = "$(val "$RFM_ENV" INTERNAL_API_TOKEN)"
-check "адрес мини-приложения в .env бота" test "$(val "$BOT_DIR/.env" FILES_MINIAPP_URL)" = https://files.example.com/tg/
 check "nginx: свой домен и лимит 201M" has_line "$NGINX_DIR/sites-available/rust-file-manager" "server_name files.example.com;"
 check "nginx: сайт включён" test -L "$NGINX_DIR/sites-enabled/rust-file-manager"
 check "certbot выпустил сертификат" test -d "$LE_DIR/live/files.example.com"
 check "ufw: открыт порт SSH текущего подключения" has_line "$SB/calls.log" "ufw allow 22/tcp"
 check "ufw: открыт 443" has_line "$SB/calls.log" "ufw allow 443/tcp"
 check "ufw включён" has_line "$SB/calls.log" "ufw --force enable"
-check "MTU probing записан" has_line "$SYSCTL_FILE" "net.ipv4.tcp_mtu_probing = 2"
 check "состояние: каталог сборки" test "$(val "$STATE_FILE" RFM_BUILD_DIR)" = "$BUILD_ROOT/rfm-build"
 check "состояние: способ HTTPS" test "$(val "$STATE_FILE" HTTPS_MODE)" = certbot
-check "подсказка про BotFather с адресом /tg/" has_line "$SB/o2" "https://files.example.com/tg/"
-check "подсказка про первый вход" has_line "$SB/o2" "https://t.me/files_example_bot?startapp"
+check "Docker не вызывается" no_line "$SB/calls.log" "docker"
+check "бот не упоминается" no_line "$SB/o2" "TelegramOnly"
+check "подсказка про вход администратора" has_line "$SB/o2" "https://files.example.com/login"
 check "в выводе нет секретов" no_secrets "$SB/o2"
 check "секретов нет и в аргументах команд" no_secrets "$SB/calls.log"
 
@@ -308,75 +231,55 @@ echo "3. Повторный deploy на готовом сервере"
 apt_before=$(count "$SB/calls.log" "apt-get")
 run "$SB/o3" deploy --yes; rc=$?
 check "завершился успешно" test "$rc" -eq 0
-check "сообщает, что всё установлено" has_line "$SB/o3" "Всё уже установлено"
+check "сообщает, что всё установлено" has_line "$SB/o3" "Файловый менеджер уже установлен"
 check "пакеты не ставит" test "$(count "$SB/calls.log" "apt-get")" -eq "$apt_before"
-check "ключи совпадают — ничего не меняет" has_line "$SB/o3" "ключи совпадают"
 
 echo "4. post_deploy без новых версий"
 restarts=$(count "$SB/calls.log" "systemctl restart rust-file-manager.service")
 run "$SB/o4" post_deploy; rc=$?
 check "завершился успешно" test "$rc" -eq 0
-check "FM и бот: уже последние версии" test "$(count "$SB/o4" "уже последняя версия")" -eq 2
+check "уже последняя версия" has_line "$SB/o4" "уже последняя версия"
 check "FM не перезапускался" test "$(count "$SB/calls.log" "systemctl restart rust-file-manager.service")" -eq "$restarts"
 
-echo "5. post_deploy --check при новых версиях"
-rfm_release 1.8.0; bot_release 3.26.0
+echo "5. post_deploy --check при новой версии"
+rfm_release 1.8.0
 bin_before=$(md5sum <"$RFM_BIN")
 run "$SB/o5" post_deploy --check; rc=$?
 check "завершился успешно" test "$rc" -eq 0
 check "видит обновление FM" has_line "$SB/o5" "файловый менеджер: есть обновление"
-check "видит обновление бота" has_line "$SB/o5" "бот: есть обновление 3.25.0 → 3.26.0"
 check "программу не трогает" test "$(md5sum <"$RFM_BIN")" = "$bin_before"
-check "бота не трогает" test "$(cat "$SB/state/docker/version")" = 3.25.0
 
-echo "6. post_deploy обновляет оба проекта"
+echo "6. post_deploy обновляет файловый менеджер"
 run "$SB/o6" post_deploy; rc=$?
 check "завершился успешно" test "$rc" -eq 0
 check "запущен FM 1.8.0" has_line "$RFM_BIN" "version=1.8.0"
 check "проверки после запуска прошли" has_line "$SB/o6" "запущен 1.8.0"
 check "копия прежней программы сохранена" compgen -G "$RFM_BACKUPS/rust-file-manager-1.7.0-*"
 check "каталог копий закрыт (700)" test "$(stat -c %a "$RFM_BACKUPS")" = 700
-check "бот обновлён до 3.26.0" test "$(cat "$SB/state/docker/version")" = 3.26.0
-check "бот остался в сети хоста" test "$(cat "$SB/state/docker/net")" = host
 check "итог: FM 1.7.0 → 1.8.0" has_line "$SB/o6" "Файловый менеджер: 1.7.0 → 1.8.0"
-check "итог: бот 3.25.0 → 3.26.0" has_line "$SB/o6" "Бот TelegramOnly: 3.25.0 → 3.26.0"
 check "в выводе нет секретов" no_secrets "$SB/o6"
 
 echo "6б. --ref закрепляет выпуск"
 git -C "$SB/src/rfm" tag v1.8.0 && git -C "$SB/src/rfm" push -q "$SB/repos/rfm.git" v1.8.0
-run "$SB/o6b" post_deploy --only fm --ref v1.8.0 --force; rc=$?
+run "$SB/o6b" post_deploy --ref v1.8.0 --force; rc=$?
 check "post_deploy --ref v1.8.0 успешен" test "$rc" -eq 0
 check "выпуск запомнен" test "$(val "$STATE_FILE" RFM_REF)" = v1.8.0
 run "$SB/o6c" post_deploy --only fm --ref main; rc=$?
+check "прежний --only fm принимается" test "$rc" -eq 0
 check "возврат на main запомнен" test "$(val "$STATE_FILE" RFM_REF)" = main
+run "$SB/o6d" post_deploy --only bot; rc=$?
+check "--only bot — ошибка" test "$rc" -eq 1
+check "объяснено, что команда только для FM" has_line "$SB/o6d" "только файловый менеджер"
 
 echo "7. Неудачное обновление FM откатывается"
 rfm_release 1.8.1 BROKEN
-run "$SB/o7" post_deploy --only fm; rc=$?
+run "$SB/o7" post_deploy; rc=$?
 check "post_deploy сообщает об ошибке" test "$rc" -eq 1
 check "в итоге — откат" has_line "$SB/o7" "ОТКАТ на 1.8.0"
 check "на месте снова программа 1.8.0" has_line "$RFM_BIN" "version=1.8.0"
 check "служба снова работает" test -f "$SB/state/active-rust-file-manager.service"
 
-echo "8. Бот в сети хоста без COMPOSE_FILE (как на старом сервере)"
-rfm_release 1.8.2
-sed -i '/COMPOSE_FILE/d' "$BOT_DIR/.env"
-bot_release 3.27.0
-run "$SB/o8" post_deploy; rc=$?
-check "завершился успешно" test "$rc" -eq 0
-check "COMPOSE_FILE возвращён в .env" test "$(val "$BOT_DIR/.env" COMPOSE_FILE)" = compose.yaml:compose.host.yaml
-check "после пересборки бот всё ещё в сети хоста" test "$(cat "$SB/state/docker/net")" = host
-check "копия .env бота сохранена с правами 600" test "$(stat -c %a "$(ls -t "$BOT_BACKUPS"/env-* | head -1)")" = 600
-
-echo "9. Ключ бота разошёлся с ключом FM"
-sed -i 's/^FILES_SERVICE_TOKEN=.*/FILES_SERVICE_TOKEN=wrong/' "$BOT_DIR/.env"
-recreated=$(wc -l <"$SB/state/docker/recreated" 2>/dev/null || echo 0)
-run "$SB/o9" deploy --yes; rc=$?
-check "deploy исправил ключ" test "$(val "$BOT_DIR/.env" FILES_SERVICE_TOKEN)" = "$(val "$RFM_ENV" INTERNAL_API_TOKEN)"
-check "бот пересоздан" test "$(wc -l <"$SB/state/docker/recreated")" -gt "$recreated"
-check "в выводе нет секретов" no_secrets "$SB/o9"
-
-echo "10. setup и самообновление команд"
+echo "8. setup и самообновление команд"
 run "$SB/o10" setup; rc=$?
 check "setup установил rfm-vps" test -x "$CMD_DIR/rfm-vps"
 check "команда deploy" test -L "$CMD_DIR/deploy"
@@ -391,15 +294,25 @@ check "после перезапуска работа продолжилась" 
 "$CMD_DIR/post_deploy" --check >"$SB/o10v" 2>&1
 check "повторно не обновляет" no_line "$SB/o10v" "обновлены"
 
+echo "9. Полная версия (вместе с ботом) не заменяется"
+for name in deploy post_deploy post-deploy; do ln -sfn tgo-vps "$CMD_DIR/$name"; done
+run "$SB/o9" setup; rc=$?
+check "setup поверх полной версии — ошибка" test "$rc" -eq 1
+check "ссылки на полную версию сохранены" test "$(readlink "$CMD_DIR/deploy")" = tgo-vps
+check "объяснено, что полная версия уже обновляет FM" has_line "$SB/o9" "полная версия команд"
+mkdir -p "$(dirname "$FULL_SCRIPT")" && printf '# tgo-vps\n' >"$FULL_SCRIPT"
+run "$SB/o9s" status
+check "при клоне бота — подсказка о полной версии" has_line "$SB/o9s" "bash $FULL_SCRIPT setup"
+mkdir -p "$SB/opt/clone/.git"
+FULL_SCRIPT=$SB/opt/clone/scripts/tgo-vps.sh run "$SB/o9c" status
+check "прежний клон без полной версии — подсказка обновить его" has_line "$SB/o9c" "git -C $SB/opt/clone pull --ff-only"
+
 # ============================================================================
-echo "11. deploy с нуля: бот в bridge, HTTPS через Cloudflare"
+echo "10. deploy с нуля: HTTPS через Cloudflare"
 new_sandbox
 printf 'Secret-pass-1\nSecret-pass-1\n' |
-  RFM_DOMAIN=files.example.com HTTPS_MODE=cloudflare BOT_NETWORK=bridge ENABLE_UFW=yes run "$SB/o11" deploy --yes; rc=$?
+  RFM_DOMAIN=files.example.com HTTPS_MODE=cloudflare ENABLE_UFW=yes run "$SB/o11" deploy --yes; rc=$?
 check "deploy завершился успешно" test "$rc" -eq 0
-check "адрес API через шлюз docker-сети" test "$(val "$BOT_DIR/.env" FILES_INTERNAL_URL)" = http://172.18.0.1:8091
-check "мост socat на шлюзе" has_line "$UNIT_DIR/rfm-internal-bridge.service" "bind=172.18.0.1,"
-check "ufw: 8091 только для docker-сети" has_line "$SB/calls.log" "ufw allow from 172.18.0.0/16 to 172.18.0.1 port 8091 proto tcp"
 check "ufw: открыт 2083, а не 443" has_line "$SB/calls.log" "ufw allow 2083/tcp"
 check "без сертификата — подсказка, куда его положить" has_line "$SB/o11" "Положите Origin-сертификат Cloudflare"
 check "сайт на 2083 пока не создан" test ! -e "$NGINX_DIR/sites-available/rust-file-manager-ssl"
@@ -411,63 +324,37 @@ check "с нужным доменом" has_line "$NGINX_DIR/sites-available/rust
 check "ключ сертификата закрыт (600)" test "$(stat -c %a "$NGINX_DIR/ssl/files.example.com/key.pem")" = 600
 check "nginx-переменные не раскрыты" has_line "$NGINX_DIR/sites-available/rust-file-manager-ssl" 'proxy_set_header Host $host;'
 
-echo "12. Сначала только бот, потом файловый менеджер"
-new_sandbox
-BOT_NETWORK=host ENABLE_UFW=no run "$SB/o12" deploy --yes --only bot; rc=$?
-check "deploy --only bot успешен" test "$rc" -eq 0
-check "бот установлен" test -f "$SB/state/docker/container"
-check "файловый менеджер не ставился" test ! -e "$RFM_BIN"
-printf 'Secret-pass-1\nSecret-pass-1\n' |
-  RFM_DOMAIN=files.example.com HTTPS_MODE=none run "$SB/o12b" deploy --yes; rc=$?
-check "второй deploy успешен" test "$rc" -eq 0
-check "поставил только FM" no_line "$SB/o12b" "fake installer done"
-check "FM сразу с мини-приложением" test "$(val "$RFM_ENV" MINIAPP_ENABLED)" = true
-check "и связан с ботом" test "$(val "$BOT_DIR/.env" FILES_SERVICE_TOKEN)" = "$(val "$RFM_ENV" INTERNAL_API_TOKEN)"
-check "HTTPS none: nginx не трогает" test -z "$(ls "$NGINX_DIR/sites-available")"
-check "FM запускался один раз (настройки бота — до первого запуска)" test "$(count "$SB/calls.log" "systemctl restart rust-file-manager.service")" -eq 1
-
-echo "13. Сборка упала — программа не тронута"
+echo "11. Сборка упала — программа не тронута"
 rfm_release 1.9.0
 touch "$SB/src/rfm/FAIL_BUILD"; git_commit_all "$SB/src/rfm" "fail" && git -C "$SB/src/rfm" push -q "$SB/repos/rfm.git" main
 bin_before=$(md5sum <"$RFM_BIN")
-run "$SB/o13" post_deploy --only fm; rc=$?
+run "$SB/o13" post_deploy; rc=$?
 check "post_deploy сообщает об ошибке" test "$rc" -eq 1
 check "показывает журнал сборки" has_line "$SB/o13" "error: fake failure"
 check "программа не изменилась" test "$(md5sum <"$RFM_BIN")" = "$bin_before"
 
-echo "14. deploy с ответами на вопросы (без --yes)"
+echo "12. deploy с ответами на вопросы (без --yes)"
 new_sandbox
-# сеть, домен (сначала неверный), HTTPS (Enter = certbot), почта (Enter), логин (Enter),
+# домен (сначала неверный), HTTPS (Enter = certbot), почта (Enter), логин (Enter),
 # пароль: короткий и ещё раз, затем верный дважды; ufw (Enter = да); «Начинаем?» (Enter)
-printf '%s\n' host "not a domain" files.example.com "" "" "" short short Secret-pass-1 Secret-pass-1 "" "" |
+printf '%s\n' "not a domain" files.example.com "" "" "" short short Secret-pass-1 Secret-pass-1 "" "" |
   run "$SB/o14" deploy; rc=$?
 check "deploy завершился успешно" test "$rc" -eq 0
 check "неверный домен переспрошен" has_line "$SB/o14" "Это не похоже на домен"
 check "короткий пароль переспрошен" has_line "$SB/o14" "Пароли короче 8 символов"
 check "выбран certbot по умолчанию" test "$(val "$STATE_FILE" HTTPS_MODE)" = certbot
 check "логин по умолчанию admin" test "$(val "$RFM_ENV" ADMIN_USERNAME)" = admin
-check "бот в сети хоста" test "$(cat "$SB/state/docker/net")" = host
 check "ufw включён по умолчанию" has_line "$SB/calls.log" "ufw --force enable"
 check "в выводе нет пароля" no_secrets "$SB/o14"
 
-echo "15. На сервере нет ничего, а доступа к репозиторию бота нет"
+echo "13. HTTPS через свой прокси: nginx не нужен"
 new_sandbox
-export BOT_REPO_URL="file://$SB/repos/no-such-repo.git"
 printf 'Secret-pass-1\nSecret-pass-1\n' |
-  RFM_DOMAIN=files.example.com HTTPS_MODE=certbot BOT_NETWORK=host ENABLE_UFW=no run "$SB/o15" deploy --yes; rc=$?
-check "deploy останавливается с ошибкой" test "$rc" -eq 1
-check "подсказывает про токен и SSH-ключ" has_line "$SB/o15" "BOT_REPO_URL=git@github.com:kureinmaxim/TelegramOnly.git deploy"
-check "останавливается до сборки файлового менеджера" test "$(count "$SB/calls.log" "cargo build")" -eq 0
-check "не оставляет пустой клон" test ! -e "$BOT_DIR/.git"
-
-echo "16. Код бота доставлен без git (rsync)"
-new_sandbox
-mkdir -p "$BOT_DIR" && cp -r "$SB/src/bot/." "$BOT_DIR/" && rm -rf "$BOT_DIR/.git"
-export BOT_REPO_URL="file://$SB/repos/no-such-repo.git"
-BOT_NETWORK=bridge ENABLE_UFW=no run "$SB/o16" deploy --yes --only bot; rc=$?
-check "deploy --only bot успешен" test "$rc" -eq 0
-check "предупреждает, что код без git" has_line "$SB/o16" "без git — использую как есть"
-check "установщик бота запущен из этого кода" has_line "$SB/o16" "fake installer done"
+  RFM_DOMAIN=files.example.com HTTPS_MODE=none ENABLE_UFW=no run "$SB/o15" deploy --yes; rc=$?
+check "deploy успешен" test "$rc" -eq 0
+check "nginx не ставится" no_line "$SB/calls.log" " nginx "
+check "сайты nginx не создаются" test -z "$(ls "$NGINX_DIR/sites-available")"
+check "подсказка направить свой прокси" has_line "$SB/o15" "http://127.0.0.1:8080"
 
 echo
 echo "Пройдено: $PASS, ошибок: $FAILED"

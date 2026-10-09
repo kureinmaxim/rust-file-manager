@@ -1,7 +1,7 @@
-# socat bridge: lets the TelegramOnly bot (Docker bridge network) reach the
-# internal API that listens on 127.0.0.1:8091 on the host.
+# socat bridge: lets a Telegram bot running in a Docker bridge network reach
+# the internal API that listens on 127.0.0.1:8091 on the host (TELEGRAM_MINIAPP.md, section 5).
 # Replace 172.18.0.1 with the gateway of the bot's compose network
-# (`docker network inspect <project>_default`), see TelegramOnly DEPLOY.md §8.9.
+# (`docker network inspect <project>_default`).
 # Install:
 #   sudo install -m 0644 deploy/rfm-internal-bridge.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now rfm-internal-bridge

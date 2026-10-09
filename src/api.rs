@@ -79,6 +79,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
                     .service(delete_item)
                     .service(make_link)
                     .configure(crate::exchange::configure_api)
+                    .configure(crate::chat::configure_api)
                     .configure(uploads::configure),
             ),
     );
@@ -155,8 +156,14 @@ fn session_reply(
             "telegram_id": telegram_id,
         },
         "limits": limits(config),
+        "features": features(config),
         "version": env!("CARGO_PKG_VERSION"),
     }))
+}
+
+/// What the Mini App may offer beyond the basics.
+fn features(config: &AppConfig) -> serde_json::Value {
+    json!({ "send_to_chat": crate::chat::enabled(config) })
 }
 
 fn limits(config: &AppConfig) -> serde_json::Value {
@@ -386,6 +393,7 @@ async fn me(user: web::ReqData<ApiUser>, config: web::Data<AppConfig>) -> HttpRe
             "telegram_id": user.telegram_id,
         },
         "limits": limits(&config),
+        "features": features(&config),
         "version": env!("CARGO_PKG_VERSION"),
     }))
 }
@@ -800,7 +808,7 @@ async fn overview(user: web::ReqData<ApiUser>, config: web::Data<AppConfig>) -> 
 }
 
 /// Resolve an item id for this user: the path on disk and the decoded parts.
-fn resolve(
+pub(crate) fn resolve(
     config: &AppConfig,
     user: &ApiUser,
     id: &str,

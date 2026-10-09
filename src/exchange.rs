@@ -723,7 +723,7 @@ async fn api_listing(
 }
 
 /// Resolve an item id for this caller: their right to the exchange first.
-fn api_file(
+pub(crate) fn api_file(
     config: &AppConfig,
     store: &UserStore,
     user: &ApiUser,

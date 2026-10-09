@@ -82,6 +82,20 @@ const greeting = () => {
 /** Signed link for a file of a zone or of the exchange. */
 const linkFor = (item, purpose) => signedUrl(item.id, purpose, item.direction ? 'exchange' : 'files');
 
+/** «В чат»: the bot sends the file to this chat (only when the bot is connected). */
+const canSendToChat = () => Boolean(session().features && session().features.send_to_chat);
+async function sendToChat(item, close) {
+  const base = item.direction ? '/exchange/items' : '/files';
+  try {
+    const r = await api(`${base}/${item.id}/send-to-chat`, { method: 'POST' });
+    tg.haptic.ok();
+    close();
+    toast(r.message);
+  } catch (e) {
+    showError(e);
+  }
+}
+
 function Icon({ name, cls = 'icon' }) {
   return html`<svg class=${cls} aria-hidden="true"><use href=${`#i-${name}`} /></svg>`;
 }
@@ -739,6 +753,7 @@ function ExchangeSheet({ item }) {
         <button class="act tap" type="button" onClick=${() => viewFile(item)}><${Icon} name="eye" />Открыть</button>
         <button class="act tap" type="button" onClick=${() => downloadFile(item)}><${Icon} name="download" />Скачать</button>
         ${incoming && html`<button class="act tap" type="button" onClick=${save}><${Icon} name="copy" />К себе</button>`}
+        ${canSendToChat() && html`<button class="act tap" type="button" onClick=${() => sendToChat(item, close)}><${Icon} name="send" />В чат</button>`}
         <button class="act tap danger" type="button" onClick=${remove}><${Icon} name="trash" />Удалить</button>
       </div>
       <div class="group"><dl class="kv">
@@ -857,7 +872,8 @@ function ItemSheet({ item }) {
         ${isFolder
           ? html`<button class="act tap" type="button" onClick=${() => { close(); openItem(item); }}><${Icon} name="folder" />Открыть</button>`
           : html`<button class="act tap" type="button" onClick=${openFile}><${Icon} name="eye" />Открыть</button>
-                 <button class="act tap" type="button" onClick=${download}><${Icon} name="download" />Скачать</button>`}
+                 <button class="act tap" type="button" onClick=${download}><${Icon} name="download" />Скачать</button>
+                 ${canSendToChat() && html`<button class="act tap" type="button" onClick=${() => sendToChat(item, close)}><${Icon} name="send" />В чат</button>`}`}
         <button class="act tap" type="button" onClick=${rename}><${Icon} name="edit" />Переимен.</button>
         <button class="act tap danger" type="button" onClick=${remove}><${Icon} name="trash" />Удалить</button>
       </div>
