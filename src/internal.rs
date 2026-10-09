@@ -1,4 +1,4 @@
-//! Internal API for the TelegramOnly bot (TELEGRAM_MINIAPP_PLAN.md §7.4).
+//! Internal API for the TelegramOnly bot.
 //!
 //! Served on a separate listener (`INTERNAL_BIND_ADDR`, normally
 //! 127.0.0.1:8091) that nginx never proxies; the bot reaches it through a

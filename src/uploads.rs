@@ -1,4 +1,4 @@
-//! Resumable chunked uploads for the Mini App (TELEGRAM_MINIAPP_PLAN.md §6.1).
+//! Resumable chunked uploads for the Mini App.
 //!
 //! Files arrive in chunks (default 8 MB) so a single request stays under the
 //! Cloudflare 100 MB limit and a dropped mobile connection only costs one

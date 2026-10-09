@@ -149,8 +149,7 @@ relay-серверы не могут прочитать содержимое
 по подписи Telegram, тема оформления Telegram, загрузка больших файлов частями с
 докачкой, подпапки внутри категорий, поиск, просмотр фото, скачивание нативным
 диалогом Telegram. Включается переменной `MINIAPP_ENABLED`; токен бота файловому
-менеджеру не нужен. Настройка — [TELEGRAM_MINIAPP.md](TELEGRAM_MINIAPP.md),
-план развития — [TELEGRAM_MINIAPP_PLAN.md](TELEGRAM_MINIAPP_PLAN.md).
+менеджеру не нужен. Настройка — [TELEGRAM_MINIAPP.md](TELEGRAM_MINIAPP.md).
 
 Бот и файловый менеджер на одном VPS, все команды по порядку:
 - установка с нуля — [DEPLOY.md](DEPLOY.md);

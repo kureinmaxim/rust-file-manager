@@ -1,5 +1,5 @@
 //! Mini App API: `/api/v1/*` with Bearer access tokens, and `/d/<token>`
-//! signed downloads (TELEGRAM_MINIAPP_PLAN.md §7).
+//! signed downloads.
 //!
 //! The authenticated username always comes from a verified token (itself
 //! issued from Telegram-signed initData); request parameters only ever select

@@ -5,13 +5,12 @@ TelegramOnly → мини-приложение по адресу `https://files.
 Вход без пароля — по подписи Telegram; пароль нужен один раз, чтобы привязать
 Telegram к существующему аккаунту (или регистрация по приглашению).
 
-План и устройство: [TELEGRAM_MINIAPP_PLAN.md](TELEGRAM_MINIAPP_PLAN.md).
 Все команды установки и обновления вместе с ботом:
 [DEPLOY.md](DEPLOY.md), [POST_DEPLOY.md](POST_DEPLOY.md);
 схема сервера и хранения файлов — [ARCHITECTUREwTELEGRAM.md](ARCHITECTUREwTELEGRAM.md).
 Макет экранов: [design/miniapp-mockup.html](design/miniapp-mockup.html).
 
-## Что уже работает (версия 1.5.0, этапы 0–1 плана)
+## Что уже работает
 
 - Привязка Telegram к аккаунту по логину и паролю (5 попыток за 15 минут),
   регистрация по одноразовому приглашению (`t.me/<бот>?startapp=inv_…`).
