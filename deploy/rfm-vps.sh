@@ -21,6 +21,14 @@ set -uo pipefail
 
 # --- Пути и имена. Переопределяются переменными окружения (для тестов) -------
 : "${RFM_REPO_URL:=https://github.com/kureinmaxim/rust-file-manager.git}"
+# Запасные источники кода, если GitHub недоступен (DEPLOY.md, раздел «Без GitHub»):
+# свои зеркала и bundle, присланный с локальной машины.
+: "${BUNDLE_DIR:=/var/cache/rfm-vps}"
+: "${RFM_MIRRORS:=}"      # ещё зеркала rust-file-manager (git-адреса через пробел)
+: "${GIT_TIMEOUT:=90}"    # секунд на fetch из одного источника
+: "${GIT_CLONE_TIMEOUT:=600}"
+# Адреса, не ответившие в этом запуске, больше не пробуем (переживает перезапуск команд).
+: "${VPS_SRC_DOWN:=}"; export VPS_SRC_DOWN
 : "${RFM_VPS_RAW:=https://raw.githubusercontent.com/kureinmaxim/rust-file-manager}"
 : "${RFM_VPS_REF:=main}"
 : "${RFM_BIN:=/usr/local/bin/rust-file-manager}"
@@ -72,6 +80,7 @@ ORIG_ARGS=()
 INSTALL_FM=''
 INSTALLED_NOW=0
 FM_PORT=''               # порт программы на localhost для новой установки
+FM_SOURCE=''             # откуда взят код файлового менеджера (GitHub, зеркало, bundle…)
 DRY_RUN=0                # delete --dry-run: только показать
 CONFIRM_HOST=''          # delete --confirm ИМЯ: подтверждение без вопроса
 DEL_DIR=''               # копия этого запуска delete
@@ -413,18 +422,115 @@ ensure_rust() {
   has cargo || die "cargo не найден"
 }
 
+# --- Источники кода ------------------------------------------------------------
+# Основной (GitHub) всегда первый. Запасные — свои зеркала
+# и bundle с локальной машины — нужны, только когда основной не ответил.
+# Каждая строка вывода — «метка адрес».
+code_sources() {  # bot|fm
+  local kind=$1 repo url m f
+  if [[ $kind == bot ]]; then
+    repo=TelegramOnly
+    url=$(git -C "$BOT_DIR" remote get-url origin 2>/dev/null) || url=${BOT_REPO_URL:-}
+  else
+    repo=rust-file-manager
+    url=$RFM_REPO_URL
+  fi
+  if [[ -n $url ]]; then
+    if [[ $url == *github.com* ]]; then echo "GitHub $url"; else echo "основной $url"; fi
+  fi
+  if [[ $kind == fm ]]; then for m in $RFM_MIRRORS; do echo "зеркало $m"; done; fi
+  f=$BUNDLE_DIR/$repo.bundle
+  if [[ -f $f ]]; then
+    if bundle_trusted "$f"; then echo "bundle $f"
+    else warn "$f не используется: файл или каталог чужой либо открыт на запись другим (нужно root, 0600/0700)"; fi
+  fi
+  return 0
+}
+
+primary_src() { [[ $1 == GitHub || $1 == основной ]]; }
+source_labels() { code_sources "$1" | cut -d' ' -f1 | paste -sd, - | sed 's/,/, /g'; }
+
+# Код из bundle выполняется от root: файл и каталог должны принадлежать нам и не
+# быть доступны на запись другим, иначе любой пользователь сервера подложит свой код.
+bundle_trusted() {
+  local p uid mode
+  for p in "$1" "$(dirname "$1")"; do
+    read -r uid mode < <(stat -c '%u %a' "$p" 2>/dev/null) || return 1
+    [[ $uid == "$EUID" ]] && (( (8#$mode & 8#022) == 0 )) || return 1
+  done
+}
+
+# git без вопросов о пароле, с ограничением по времени; ключ хоста SSH проверяется
+# по known_hosts как обычно.
+src_git() {  # метка аргументы-git…
+  shift
+  GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=${GIT_SSH_COMMAND:-ssh -o BatchMode=yes -o ConnectTimeout=10} \
+    timeout "$GIT_TIMEOUT" git "$@"
+}
+
+# Как src_git, но адрес, который уже не ответил в этом запуске, не трогаем:
+# недоступный GitHub не должен стоить таймаут на каждом шаге.
+src_try() {  # метка адрес аргументы-git…
+  local label=$1 url=$2
+  shift 2
+  [[ " $VPS_SRC_DOWN " == *" $url "* ]] && return 1
+  src_git "$label" "$@" 2>/dev/null && return 0
+  [[ $label == bundle ]] || VPS_SRC_DOWN+=" $url"
+  return 1
+}
+
+# Версия a новее версии b (вида 1.2.3).
+version_gt() { [[ -n $1 && $1 != "$2" && $(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1) == "$1" ]]; }
+
+drop_refs() {  # каталог префикс — временные ссылки на полученные версии
+  local r
+  git -C "$1" for-each-ref --format='%(refname)' "$2" 2>/dev/null |
+    while read -r r; do git -C "$1" update-ref -d "$r"; done
+}
+
 # --- Файловый менеджер -------------------------------------------------------
 fm_checkout() {  # каталог ref
-  local dir=$1 ref=$2
+  local dir=$1 ref=$2 label url ver n=0 best='' best_ver='' best_label='' existed=0
+  local -a depth
+  FM_SOURCE=''
   if [[ ! -d $dir/.git ]]; then
-    git clone -q --depth 1 "$RFM_REPO_URL" "$dir" || { fail "git clone $RFM_REPO_URL не прошёл"; return 1; }
+    if [[ -e $dir ]]; then
+      [[ -z $(ls -A "$dir" 2>/dev/null) ]] || { fail "$dir не пустой и это не клон git — разберите его вручную"; return 1; }
+      existed=1
+    fi
+    while read -r label url; do
+      # -b main: bundle клонируется только с явной веткой.
+      if GIT_TIMEOUT=$GIT_CLONE_TIMEOUT src_try "$label" "$url" clone -q --depth 1 -b main "$url" "$dir"; then
+        git -C "$dir" remote set-url origin "$RFM_REPO_URL"  # в следующий раз снова сначала основной
+        break
+      fi
+      # Остатки прерванного clone; каталог был пуст или его не было.
+      if (( existed )); then find "$dir" -mindepth 1 -delete 2>/dev/null; else rm -rf -- "$dir"; fi
+    done < <(code_sources fm)
+    [[ -d $dir/.git ]] || { fail "Код rust-file-manager не получен ни из одного источника ($(source_labels fm))"; return 1; }
   fi
   if [[ -n $(git -C "$dir" status --porcelain --untracked-files=no 2>/dev/null) ]]; then
     fail "В $dir изменены файлы — не трогаю. Сохраните правки или удалите каталог"
     return 1
   fi
-  git -C "$dir" fetch -q --depth 1 origin "$ref" && git -C "$dir" checkout -q --detach FETCH_HEAD ||
-    { fail "Не удалось получить $ref"; return 1; }
+  while read -r label url; do
+    n=$((n + 1))
+    depth=(--depth 1); [[ $label == bundle ]] && depth=()  # --depth из bundle в пустой клон падает
+    src_try "$label" "$url" -C "$dir" fetch -q "${depth[@]}" "$url" "+$ref:refs/rfm-vps/src$n" || continue
+    if primary_src "$label"; then best=refs/rfm-vps/src$n; best_label=$label; break; fi
+    # Запасные: самая новая версия; при равных — источник раньше по списку.
+    ver=$(git -C "$dir" show "refs/rfm-vps/src$n:Cargo.toml" 2>/dev/null | grep -m1 '^version' | cut -d'"' -f2)
+    if [[ -z $best ]] || version_gt "$ver" "$best_ver"; then best=refs/rfm-vps/src$n; best_ver=$ver; best_label=$label; fi
+  done < <(code_sources fm)
+  if [[ -z $best ]]; then
+    drop_refs "$dir" refs/rfm-vps/
+    fail "Не удалось получить $ref ни из одного источника ($(source_labels fm))"
+    return 1
+  fi
+  git -C "$dir" checkout -q --detach "$best" || { drop_refs "$dir" refs/rfm-vps/; fail "Не удалось переключиться на $ref"; return 1; }
+  drop_refs "$dir" refs/rfm-vps/
+  FM_SOURCE=$best_label
+  primary_src "$FM_SOURCE" || say "код rust-file-manager взят из источника «$FM_SOURCE»"
 }
 
 # Сборка в отдельной сессии: обрыв SSH и Ctrl+C её не прерывают. Если сборка уже
@@ -709,6 +815,13 @@ fm_update() {
   head=$(git -C "$dir" rev-parse HEAD)
   running=$(fm_commit); running=${running%-dirty}
   say "работает: $(fm_version || true) (${running:-?}), в $ref: $(grep -m1 '^version' "$dir/Cargo.toml" | cut -d'"' -f2) (${head:0:7})"
+  # Запасной источник мог отстать от GitHub: версию старее работающей не ставим.
+  if ! primary_src "$FM_SOURCE" && [[ -z $RFM_REF ]] &&
+     version_gt "$(fm_version)" "$(grep -m1 '^version' "$dir/Cargo.toml" | cut -d'"' -f2)"; then
+    warn "в источнике «$FM_SOURCE» версия старее работающей — файловый менеджер не трогаю"
+    SUMMARY+=("Файловый менеджер: без изменений — источник «$FM_SOURCE» отстаёт, работает $(fm_version)")
+    return 0
+  fi
   if [[ -n $running && $head == "$running"* ]] && (( ! FORCE )) && systemctl is-active --quiet "$RFM_UNIT"; then
     ok "уже последняя версия"
     SUMMARY+=("Файловый менеджер: без изменений, $(fm_version)")
@@ -1293,12 +1406,18 @@ cmd_post_deploy() {
 }
 
 check_updates() {
-  local ref remote running rc=0
+  local ref remote running rc=0 label url
   step "Доступные обновления (программы и настройки не меняю)"
   ref=${RFM_REF:-$(state_get RFM_REF)}; ref=${ref:-main}
-  remote=$(git ls-remote "$RFM_REPO_URL" "$ref" "$ref^{}" 2>/dev/null | tail -1 | cut -f1)
+  remote=''
+  while read -r label url; do
+    remote=$(src_try "$label" "$url" ls-remote "$url" "$ref" "$ref^{}" | tail -1 | cut -f1)
+    [[ -n $remote ]] || continue
+    primary_src "$label" || say "сверяю с источником «$label»"
+    break
+  done < <(code_sources fm)
   running=$(fm_commit); running=${running%-dirty}
-  if [[ -z $remote ]]; then warn "не удалось узнать $ref на GitHub"; rc=1
+  if [[ -z $remote ]]; then warn "не удалось узнать $ref ни в одном источнике"; rc=1
   elif [[ -n $running && $remote == "$running"* ]]; then ok "файловый менеджер: последняя версия ($running)"
   else say "файловый менеджер: есть обновление ${running:-?} → ${remote:0:7}"; fi
   say "Обновить: post_deploy"
@@ -1383,6 +1502,8 @@ main() {
     esac
     shift
   done
+  # Свои зеркала: переменная окружения, иначе строка RFM_MIRRORS=… в /etc/rfm-vps.conf.
+  [[ -n $RFM_MIRRORS ]] || RFM_MIRRORS=$(state_get RFM_MIRRORS)
   case $CMD in
     setup) cmd_setup ;;
     deploy) cmd_deploy ;;
