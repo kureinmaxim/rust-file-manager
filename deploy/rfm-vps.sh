@@ -192,14 +192,15 @@ port_owner() {
   printf '%s' "$name"
 }
 
-# Другие службы сервера: порты, кроме самого файлового менеджера и моста socat.
+# Другие службы сервера: порты, кроме самого файлового менеджера.
 # Список снимается до установки или обновления и сверяется после: VPN, координатор
-# Headscale с DERP, tailscaled, Headplane и др. должны остаться на месте.
+# Headscale с DERP, tailscaled, Headplane и др. должны остаться на месте. Мосты
+# socat тоже сверяются: через них бот достаёт службы хоста (BotCriptoM, «Файлы»).
 others_snapshot() {
   {
     ss -H -tulpn 2>/dev/null | awk '
       { port = $5; sub(/.*:/, "", port); name = $7; sub(/^users:\(\("/, "", name); sub(/".*/, "", name)
-        if (port !~ /^[0-9]+$/ || name == "rust-file-manag" || name == "socat") next
+        if (port !~ /^[0-9]+$/ || name == "rust-file-manag") next
         proto = ($1 ~ /^udp/) ? "udp" : "tcp"
         # Эфемерные порты исходящих сокетов меняются сами: для них только имя процесса.
         # Сокеты ядра (WireGuard) без процесса — всегда по порту.

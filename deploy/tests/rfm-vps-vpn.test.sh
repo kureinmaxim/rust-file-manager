@@ -140,11 +140,14 @@ check 'перезапускались только FM и nginx' only_own_units "
 check 'Docker не вызывается' no_line "$SB/calls.log" 'docker'
 
 echo '7. Служба пропала за время обновления — это видно в итоге'
-printf 'sed -i "/derper/d" "$SB/state/ss.txt"\n' >>"$SB/bin/cargo"
+# socat-мост на шлюзе docker-сети (BotCriptoM и др.) тоже сверяется.
+printf 'tcp LISTEN 0 5 172.18.0.1:8787 0.0.0.0:* users:(("socat",pid=21,fd=5))\n' >>"$SB/state/ss.txt"
+printf 'sed -i -e "/derper/d" -e "/socat/d" "$SB/state/ss.txt"\n' >>"$SB/bin/cargo"
 rfm_release 1.9.0
 WAIT_SECONDS=0 run "$SB/lost" post_deploy --yes; rc=$?
 check 'пропажа — ненулевой код' test "$rc" -eq 1
 check 'названы порт и процесс' has_line "$SB/lost" 'пропало: 3478/udp derper'
+check 'пропавший мост socat назван' has_line "$SB/lost" '8787/tcp socat'
 check 'FM при этом обновлён' has_line "$RFM_BIN" 'version=1.9.0'
 
 echo '8. Мало места на диске: сборка не начинается, программа прежняя'
