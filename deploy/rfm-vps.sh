@@ -36,6 +36,7 @@ set -uo pipefail
 : "${LE_DIR:=/etc/letsencrypt}"
 : "${SWAP_FILE:=/swapfile}"
 : "${LOCK_FILE:=/run/rfm-vps.lock}"
+: "${DELETE_BACKUPS:=/var/backups/rfm-delete}"   # копии команды delete
 : "${CARGO_ENV:=$HOME/.cargo/env}"
 : "${FM_USER:=filemgr}"
 : "${FSTAB:=/etc/fstab}"
@@ -46,6 +47,7 @@ set -uo pipefail
 # под именем tgo-vps; эта версия её не заменяет.
 : "${FULL_CMD:=tgo-vps}"
 : "${FULL_SCRIPT:=/opt/TelegramOnly/scripts/tgo-vps.sh}"
+CMD_NAME=rfm-vps            # имя установленной команды в CMD_DIR
 
 RUST_MIN_MINOR=88          # Rust 1.88+
 KEEP_BACKUPS=3             # сколько последних копий программы оставлять
@@ -62,6 +64,7 @@ CMD=''
 ASSUME_YES=0
 FORCE=0
 CHECK_ONLY=0
+ONLY=''                  # --only fm (у delete — без вопроса о компоненте)
 BACKUP_DATA=0
 RFM_REF=''
 ADMIN_PASSWORD=''
@@ -69,6 +72,16 @@ ORIG_ARGS=()
 INSTALL_FM=''
 INSTALLED_NOW=0
 FM_PORT=''               # порт программы на localhost для новой установки
+DRY_RUN=0                # delete --dry-run: только показать
+CONFIRM_HOST=''          # delete --confirm ИМЯ: подтверждение без вопроса
+DEL_DIR=''               # копия этого запуска delete
+DEL_PRESENT=()           # что нашлось на сервере
+DEL_SELECTED=()          # что выбрано к удалению
+REMOVED=()               # что удалено (для итога)
+KEPT=()                  # что осталось на месте (другой диск)
+FM_DOMAIN=''             # домен удалённого файлового менеджера
+FM_BUILD=''              # его каталог сборки
+LISTEN_BEFORE=''         # внешние порты до удаления (для ufw)
 OTHERS_BEFORE=''         # другие службы сервера до начала команды (others_snapshot)
 SUMMARY=()
 TODO=()
@@ -763,6 +776,246 @@ fm_install_fresh() {
   SUMMARY+=("Файловый менеджер: установлен $(fm_version), https://$RFM_DOMAIN")
 }
 
+
+# --- delete ------------------------------------------------------------------
+# Спрашивает по очереди, что убрать, показывает план и выполняет только после
+# ввода имени сервера. Файлы не стираются, а переносятся в копию
+# $DELETE_BACKUPS/<дата>-delete-…: вернуть можно обратным mv. Пересобираемое
+# (каталог сборки, Rust, образы Docker) и общее для нескольких служб удаляется
+# только по отдельному вопросу в конце.
+in_list() { [[ " ${DEL_SELECTED[*]} " == *" $1 "* ]]; }
+
+del_title() {
+  case $1 in
+    fm) echo "Файловый менеджер rust-file-manager (программа, данные, сайт nginx)" ;;
+  esac
+}
+
+del_init() {
+  [[ -n $DEL_DIR ]] && return 0
+  [[ -L $DELETE_BACKUPS ]] && die "$DELETE_BACKUPS — ссылка; копию туда не кладу"
+  install -d -m 0700 "$DELETE_BACKUPS" || die "Не удалось создать $DELETE_BACKUPS"
+  DEL_DIR=$(mktemp -d "$DELETE_BACKUPS/$(date +%Y%m%d-%H%M%S)-delete-XXXX") || die "Не удалось создать копию в $DELETE_BACKUPS"
+}
+
+# Перенести путь в копию запуска (mv, не rm -rf). Системные каталоги не трогаем
+# никогда; отдельный диск или точку монтирования оставляем на месте.
+del_archive() {  # путь
+  local src=$1 dst
+  [[ -e $src || -L $src ]] || return 0
+  case ${src%/} in
+    ''|/|/etc|/var|/var/lib|/var/backups|/usr|/usr/local|/usr/local/bin|/opt|/root|/home|/boot|/srv|/tmp)
+      fail "отказ: $src — системный каталог"; return 1 ;;
+  esac
+  dst=$DEL_DIR/files$src
+  mkdir -p -m 0700 "$(dirname "$dst")" || return 1
+  if mountpoint -q "$src" 2>/dev/null || [[ $(stat -c %d "$src") != "$(stat -c %d "$(dirname "$dst")")" ]]; then
+    warn "$src на другом диске — оставляю на месте; удалите вручную, когда он не нужен"
+    KEPT+=("$src")
+    return 0
+  fi
+  mv -T -- "$src" "$dst"
+}
+
+fm_domain() {  # домен из PUBLIC_BASE_URL
+  local u
+  u=$(env_get "$RFM_ENV" PUBLIC_BASE_URL); u=${u#*://}
+  echo "${u%%[/:]*}"
+}
+
+fm_delete() {
+  local site env_dir removed_site=0
+  step "Файловый менеджер: удаление"
+  FM_DOMAIN=$(fm_domain)
+  FM_BUILD=$(fm_build_dir)
+  systemctl disable --now "$RFM_UNIT" >/dev/null 2>&1 || true
+  for site in rust-file-manager rust-file-manager-ssl; do
+    if [[ -e $NGINX_DIR/sites-enabled/$site || -L $NGINX_DIR/sites-enabled/$site ]]; then
+      rm -f -- "$NGINX_DIR/sites-enabled/$site"; removed_site=1
+    fi
+    del_archive "$NGINX_DIR/sites-available/$site" || return 1
+  done
+  if (( removed_site )) && has nginx; then
+    if nginx -t >/dev/null 2>&1; then systemctl reload nginx >/dev/null 2>&1 || warn "nginx не перечитал настройки"
+    else warn "nginx -t не прошёл после удаления сайта — проверьте конфигурацию nginx"; fi
+  fi
+  # Сертификат Cloudflare Origin сам не перевыпускается — в копию.
+  if [[ -n $FM_DOMAIN ]]; then del_archive "$NGINX_DIR/ssl/$FM_DOMAIN" || return 1; fi
+  env_dir=$(dirname "$RFM_ENV")
+  [[ ${env_dir##*/} == rust-file-manager ]] || env_dir=$RFM_ENV
+  { del_archive "$UNIT_DIR/$RFM_UNIT" && del_archive "$UNIT_DIR/$RFM_UNIT.d" && del_archive "$RFM_BIN" &&
+    del_archive "$env_dir" && del_archive "$RFM_DATA" && del_archive "$STATE_FILE"; } ||
+    { fail "не удалось перенести файлы файлового менеджера в копию"; return 1; }
+  systemctl daemon-reload >/dev/null 2>&1
+  if [[ $FM_USER != root ]] && id "$FM_USER" >/dev/null 2>&1; then
+    userdel "$FM_USER" >/dev/null 2>&1 || warn "пользователь $FM_USER не удалён"
+  fi
+  ok "файловый менеджер удалён; данные — в $DEL_DIR/files$RFM_DATA"
+  REMOVED+=("Файловый менеджер: программа, настройки и данные в копии")
+}
+
+delete_build_leftovers() {
+  local d rustup rust=0
+  local -a dirs=()
+  for d in "$FM_BUILD" "$BUILD_ROOT"/rfm-build "$BUILD_ROOT"/rfm-build-*; do
+    # Только каталоги сборки этих команд (rfm-build*), а не любой git-клон.
+    [[ -n $d && ${d##*/} == rfm-build* && -d $d/.git && " ${dirs[*]} " != *" $d "* ]] && dirs+=("$d")
+  done
+  rustup=$(dirname "$CARGO_ENV")/bin/rustup
+  [[ -x $rustup ]] && rust=1
+  (( ${#dirs[@]} || rust )) || return 0
+  confirm "Удалить$( (( ${#dirs[@]} )) && echo " каталог сборки (${dirs[*]})")$( (( ${#dirs[@]} && rust )) && echo " и")$( (( rust )) && echo " Rust") — нужны только для сборки файлового менеджера и при новой установке появятся снова?" y || return 0
+  (( ${#dirs[@]} )) && rm -rf -- "${dirs[@]}"
+  rm -f -- "$BUILD_LOG"
+  if (( rust )); then "$rustup" self uninstall -y >/dev/null 2>&1 || warn "Rust удалён не полностью"; fi
+  ok "удалено:$( (( ${#dirs[@]} )) && echo " ${dirs[*]}")$( (( rust )) && echo " Rust")"
+}
+
+delete_swap() {
+  local used avail
+  [[ -f $SWAP_FILE ]] || return 0
+  confirm "Удалить swap $SWAP_FILE? Он нужен был для сборки; на маленьком VPS пригодится и другим службам" n || return 0
+  if swapon --show=NAME --noheadings 2>/dev/null | grep -qxF "$SWAP_FILE"; then
+    used=$(swapon --show=NAME,USED --bytes --noheadings 2>/dev/null | awk -v f="$SWAP_FILE" '$1 == f {print int($2 / 1048576)}')
+    avail=$(awk '/MemAvailable/ {print int($2 / 1024)}' "$MEMINFO")
+    if (( ${used:-0} + 200 > ${avail:-0} )); then
+      warn "в swap $used МБ, а свободной памяти $avail МБ — swap не выключаю"; return 0
+    fi
+    swapoff "$SWAP_FILE" || { warn "swapoff не прошёл"; return 0; }
+  fi
+  sed -i "\#^$SWAP_FILE[[:space:]]#d" "$FSTAB" && rm -f -- "$SWAP_FILE" && ok "swap $SWAP_FILE удалён"
+}
+
+delete_nginx_if_unused() {
+  local f p
+  local -a pkgs=()
+  has nginx || return 0
+  for f in "$NGINX_DIR"/sites-enabled/* "$NGINX_DIR"/conf.d/*.conf; do
+    [[ -e $f && ${f##*/} != default ]] && return 0
+  done
+  for p in nginx nginx-common nginx-core nginx-full libnginx-mod-stream; do
+    dpkg -s "$p" >/dev/null 2>&1 && pkgs+=("$p")
+  done
+  # certbot — только если сертификатов больше нет: их продлевает он.
+  if ! compgen -G "$LE_DIR/live/*/cert.pem" >/dev/null; then
+    for p in certbot python3-certbot-nginx; do dpkg -s "$p" >/dev/null 2>&1 && pkgs+=("$p"); done
+  fi
+  (( ${#pkgs[@]} )) || return 0
+  confirm "nginx больше не обслуживает ни одного сайта — удалить ${pkgs[*]}?" n || return 0
+  DEBIAN_FRONTEND=noninteractive apt-get purge -y -q "${pkgs[@]}" >/dev/null && ok "удалено: ${pkgs[*]}" ||
+    warn "пакеты удалены не полностью"
+}
+
+# Порты, которые слушали удалённые службы: закрыть в ufw, если их больше никто не слушает.
+delete_ufw_ports() {
+  local spec
+  local -a rules=()
+  has ufw && ufw status 2>/dev/null | grep -q 'Status: active' || return 0
+  for spec in $(comm -23 <(awk 'NF {print $1}' <<<"$LISTEN_BEFORE" | sort -u) <(public_listeners | awk '{print $1}' | sort -u)); do
+    ufw status 2>/dev/null | grep -qE "^${spec}[[:space:]]" && rules+=("$spec")
+  done
+  (( ${#rules[@]} )) || return 0
+  confirm "Закрыть в ufw порты удалённых служб: ${rules[*]}?" y || return 0
+  for spec in "${rules[@]}"; do
+    ufw delete allow "$spec" >/dev/null 2>&1 && ok "ufw: $spec закрыт" || warn "ufw: $spec не закрыт"
+  done
+}
+
+delete_commands_if_unused() {
+  local n target
+  fm_present && return 0
+  confirm "На сервере не осталось ни бота, ни файлового менеджера — удалить и сами команды deploy, post_deploy и delete?" n || return 0
+  for n in deploy post_deploy post-deploy delete; do
+    target=$(readlink "$CMD_DIR/$n" 2>/dev/null)
+    [[ -L $CMD_DIR/$n && $target == "$CMD_NAME" ]] && rm -f -- "$CMD_DIR/$n"
+  done
+  rm -f -- "$CMD_DIR/$CMD_NAME" "$CMD_DIR/$CMD_NAME".backup.*
+  ok "команды удалены"
+}
+
+delete_shared() {
+  step "Общее для нескольких служб"
+  if in_list fm; then
+    if [[ -n $FM_DOMAIN && -d $LE_DIR/live/$FM_DOMAIN ]] && has certbot &&
+       confirm "Удалить сертификат Let's Encrypt для $FM_DOMAIN? При новой установке он выпустится снова" y; then
+      certbot delete --cert-name "$FM_DOMAIN" --non-interactive >/dev/null 2>&1 && ok "сертификат $FM_DOMAIN удалён" ||
+        warn "certbot delete не прошёл"
+    fi
+    delete_build_leftovers
+    delete_swap
+  fi
+  delete_nginx_if_unused
+  # Последним: после nginx и Docker могли освободиться и их порты.
+  delete_ufw_ports
+  delete_commands_if_unused
+  say "Остальное общее (sysctl, пакеты, SSH) команда не трогает"
+}
+
+delete_confirm_host() {
+  local host=$1 ans
+  if [[ -n $CONFIRM_HOST ]]; then
+    [[ $CONFIRM_HOST == "$host" ]] || die "--confirm: имя этого сервера — $host. Ничего не удалено"
+    return 0
+  fi
+  printf '    Для подтверждения введите имя сервера (%s): ' "$host" >&2
+  IFS= read -r ans || die "Отменено — ничего не удалено"
+  [[ $ans == "$host" ]] || die "Имя не совпало — ничего не удалено"
+}
+
+delete_summary() {
+  local r
+  for r in "${REMOVED[@]}"; do SUMMARY+=("Удалено: $r"); done
+  if [[ -n $DEL_DIR ]]; then
+    if [[ -z $(find "$DEL_DIR" -mindepth 1 -print -quit 2>/dev/null) ]]; then rmdir "$DEL_DIR" 2>/dev/null
+    else SUMMARY+=("Копия: $DEL_DIR (вернуть — mv обратно из files/)"); TODO+=("Когда копия не нужна: rm -rf $DEL_DIR"); fi
+  fi
+  (( ${#KEPT[@]} )) && SUMMARY+=("Оставлено на месте (другой диск): ${KEPT[*]}")
+  return 0
+}
+
+cmd_delete() {
+  local rc=0
+  [[ $EUID -eq 0 ]] || die "Запустите от root: sudo -i, затем команду ещё раз"
+  (( ASSUME_YES )) && die "delete не принимает --yes: подтвердите именем сервера — в ответ на вопрос или --confirm ИМЯ"
+  [[ -z $ONLY || $ONLY == fm ]] || die "Эта версия удаляет только файловый менеджер (--only fm)"
+  if (( ! DRY_RUN )); then self_update; handover_to_full; take_lock; fi
+  print_status
+  step "Что можно удалить"
+  if ! fm_present; then say "Файловый менеджер не установлен — удалять нечего"; return 0; fi
+  say "• $(del_title fm)"
+  say "Не трогаю: другие программы сервера (VPN, Docker, mesh-сеть), SSH"
+  if [[ -d ${FULL_SCRIPT%/scripts/*}/.git ]]; then
+    warn "На сервере есть бот: его связку с файловым менеджером убирает полная версия команд ($FULL_CMD delete)"
+  fi
+  if [[ -z $ONLY ]] && (( ! DRY_RUN )); then
+    step "Что удалить (Enter — оставить)"
+    confirm "Удалить: $(del_title fm)?" n || { say "Ничего не выбрано — ничего не удалено"; return 0; }
+  fi
+  DEL_SELECTED=(fm)
+  step "План удаления"
+  say "• файловый менеджер: остановить, убрать сайт nginx, перенести программу, настройки и данные ($(du -sh "$RFM_DATA" 2>/dev/null | cut -f1)) в копию"
+  say "Файлы переносятся в $DELETE_BACKUPS — вернуть можно, удалить насовсем — когда убедитесь, что не нужны"
+  say "Потом команда предложит убрать то общее, что стало ненужным (сертификат, Rust, swap, порты в ufw…)"
+  if (( DRY_RUN )); then say "Это просмотр (--dry-run): ничего не изменено"; return 0; fi
+  delete_confirm_host "$(hostname)"
+  LISTEN_BEFORE=$(public_listeners)
+  del_init
+  fm_delete || rc=1
+  (( rc )) || delete_shared
+  delete_summary
+  print_summary
+  return "$rc"
+}
+
+# Команда delete появилась позже deploy/post_deploy, а самообновление ссылок не
+# создаёт: добавляем ссылку сами, если запущена установленная команда и имя свободно.
+ensure_delete_link() {
+  [[ $(readlink -f "$0" 2>/dev/null) == "$(readlink -f "$CMD_DIR/$CMD_NAME" 2>/dev/null)" ]] || return 0
+  [[ -e $CMD_DIR/delete || -L $CMD_DIR/delete ]] && return 0
+  ln -s "$CMD_NAME" "$CMD_DIR/delete" 2>/dev/null &&
+    say "Добавлена команда delete — удаление по выбору с копией (подробно: $CMD_NAME --help)"
+}
+
 # --- Самообновление команд ---------------------------------------------------
 install_command() {  # скачанный файл целевой_файл
   local src=$1 target=$2 backup next
@@ -815,6 +1068,12 @@ handover_to_full() {
       timeout 30 git -C "$clone" fetch -q origin main 2>/dev/null
     git -C "$clone" show "origin/main:$rel" >"$tmp" 2>/dev/null || : >"$tmp"
   fi
+  if [[ $CMD == delete ]] && grep -q "$FULL_CMD" "$tmp" && ! grep -q 'cmd_delete' "$tmp"; then
+    rm -f "$tmp"
+    warn "Полная версия команд ($FULL_CMD) пока без delete — удаляю только файловый менеджер"
+    TODO+=("Уберите FILES_* из .env бота и перезапустите его: файлового менеджера больше нет")
+    return 0
+  fi
   if ! grep -q "$FULL_CMD" "$tmp" || ! bash -n "$tmp" 2>/dev/null; then
     rm -f "$tmp"
     warn "На сервере есть бот, а полной версии команд ($FULL_CMD) в его репозитории пока нет — обновляю только файловый менеджер"
@@ -835,12 +1094,17 @@ handover_to_full() {
 
 # --- Команды -----------------------------------------------------------------
 cmd_setup() {
-  local tmp src name target
+  local tmp src name target skip_delete=0
   [[ $EUID -eq 0 ]] || die "Запустите от root"
   install -d -m 0755 "$CMD_DIR"
-  for name in deploy post_deploy post-deploy; do
+  for name in deploy post_deploy post-deploy delete; do
     [[ -e $CMD_DIR/$name || -L $CMD_DIR/$name ]] || continue
     target=$(readlink "$CMD_DIR/$name" 2>/dev/null)
+    if [[ $name == delete && ( ! -L $CMD_DIR/$name || ( $target != "$CMD_NAME" && $target != "$FULL_CMD" ) ) ]]; then
+      # Имя delete короткое и могло быть занято раньше: не мешает установке остальных.
+      warn "$CMD_DIR/delete уже занят другой командой — удаление запускайте как: $CMD_NAME delete"
+      skip_delete=1; continue
+    fi
     # Полная версия уже обслуживает и файловый менеджер — её не заменяем.
     [[ $target == "$FULL_CMD" ]] &&
       die "$CMD_DIR/$name — полная версия команд ($FULL_CMD): она уже обновляет файловый менеджер. setup ничего не заменяет"
@@ -861,6 +1125,7 @@ cmd_setup() {
   ln -sfn rfm-vps "$CMD_DIR/deploy"
   ln -sfn rfm-vps "$CMD_DIR/post_deploy"
   ln -sfn rfm-vps "$CMD_DIR/post-deploy"
+  (( skip_delete )) || ln -sfn rfm-vps "$CMD_DIR/delete"
   ok "команды установлены в $CMD_DIR из $src"
   cat <<EOF
 
@@ -961,6 +1226,7 @@ cmd_deploy() {
   self_update
   handover_to_full
   take_lock
+  ensure_delete_link
   print_status
   deploy_questions
   OTHERS_BEFORE=$(others_snapshot)
@@ -1010,7 +1276,7 @@ cmd_post_deploy() {
   local rc=0
   [[ $EUID -eq 0 ]] || die "Запустите от root: sudo -i, затем команду ещё раз"
   # Проверка не должна заменять установленные команды или перезапускать себя.
-  if (( ! CHECK_ONLY )); then self_update; handover_to_full; take_lock; fi
+  if (( ! CHECK_ONLY )); then self_update; handover_to_full; take_lock; ensure_delete_link; fi
   print_status
   if ! fm_present; then
     step "Файловый менеджер не установлен"
@@ -1077,8 +1343,13 @@ rfm-vps — установка и обновление rust-file-manager на VP
       --ref закрепляет выпуск для следующих запусков (вернуться: --ref main).
       --force — пересобрать и перезапустить, даже если версия та же.
       --backup-data — перед заменой программы сохранить архив данных.
+  delete [--dry-run] [--only fm] [--confirm ИМЯ]
+      Удалить файловый менеджер: показывает план и выполняет после ввода имени
+      сервера. Файлы переносятся в копию /var/backups/rfm-delete; в конце
+      предлагает убрать ненужное общее (сертификат, Rust, swap, порты в ufw).
+      --dry-run — только план; --confirm ИМЯ — без вопросов (общее остаётся).
   rfm-vps status    что стоит на сервере
-  rfm-vps setup     (пере)установить команды deploy и post_deploy
+  rfm-vps setup     (пере)установить команды deploy, post_deploy и delete
 
 REF — ветка или тег rust-file-manager (по умолчанию main).
 Инструкции: DEPLOY_ALGORITHM.md, DEPLOY.md и POST_DEPLOY.md в репозитории rust-file-manager.
@@ -1090,6 +1361,7 @@ main() {
   case ${0##*/} in
     deploy) CMD=deploy ;;
     post_deploy|post-deploy) CMD=post_deploy ;;
+    delete) CMD=delete ;;
     *) CMD=${1:-help}; shift || true; ORIG_ARGS=("$@") ;;
   esac
   [[ $CMD == post-deploy ]] && CMD=post_deploy
@@ -1098,11 +1370,13 @@ main() {
       --yes|-y) ASSUME_YES=1 ;;
       --force) FORCE=1 ;;
       --check) CHECK_ONLY=1 ;;
+      --dry-run) DRY_RUN=1 ;;
+      --confirm) [[ -n ${2:-} && ${2:-} != -* ]] || die "--confirm требует имя сервера"; CONFIRM_HOST=$2; shift ;;
       --backup-data) BACKUP_DATA=1 ;;
       --only)
         # Прежний параметр: файловый менеджер — единственный проект этой команды.
         [[ ${2:-} == fm ]] || die "--only: эта команда обслуживает только файловый менеджер (--only fm)"
-        shift ;;
+        ONLY=fm; shift ;;
       --ref) [[ -n ${2:-} && ${2:-} != -* ]] || die "--ref требует ветку или тег"; RFM_REF=$2; shift ;;
       -h|--help) usage; return 0 ;;
       *) die "Неизвестный параметр: $1 (см. --help)" ;;
@@ -1113,6 +1387,7 @@ main() {
     setup) cmd_setup ;;
     deploy) cmd_deploy ;;
     post_deploy) cmd_post_deploy ;;
+    delete) cmd_delete ;;
     status) cmd_status ;;
     help|-h|--help) usage ;;
     *) usage; return 1 ;;
