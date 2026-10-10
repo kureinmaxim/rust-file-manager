@@ -87,7 +87,14 @@ deploy
    ufw — только если его включаете.
 5. **Готовит сервер:**
    - создаёт swap 2 ГБ, если его нет, памяти меньше 3,5 ГБ, а на диске
-     после этого останется место для сборки (свободно от 4 ГБ);
+     после этого останется место для сборки (свободно от 4 ГБ). Уже
+     включённый swap команда не трогает, даже маленький: если памяти вместе
+     со swap меньше 3 ГБ (например, 1 ГБ и swap 1 ГБ), добавьте swap до
+     `deploy` — последний шаг сборки (LTO) требует много памяти:
+     ```bash
+     [ ! -e /swapfile2 ] && fallocate -l 2G /swapfile2 && chmod 600 /swapfile2 &&
+       mkswap -q /swapfile2 && swapon /swapfile2 && echo '/swapfile2 none swap sw 0 0' >> /etc/fstab
+     ```
    - включает ufw, если вы согласились.
 6. **Ставит файловый менеджер:**
    - ставит Rust;
@@ -126,14 +133,20 @@ deploy
 слушают службы (TCP и UDP, кроме loopback). Остановленная в этот момент служба
 окажется закрыта — включайте ufw, когда все нужные программы запущены.
 
-Для HTTPS через Cloudflare нужен ещё **Origin-сертификат**: положите
-`cert.pem` и `key.pem` в `/etc/nginx/ssl/files.example.com/` и запустите
-`deploy` ещё раз (подробно — [HTTPS через Cloudflare](#б-https-через-cloudflare)).
-Затем в Cloudflare:
+Для HTTPS через Cloudflare нужен ещё **Origin-сертификат**: `cert.pem` и
+`key.pem` в `/etc/nginx/ssl/files.example.com/`. Лучше положить их до
+`deploy`: тогда nginx на 2083 настроится в том же запуске. Положили после —
+запустите `deploy` ещё раз (подробно — [HTTPS через Cloudflare](#б-https-через-cloudflare)).
+В Cloudflare:
 
-- режим SSL/TLS **Full (strict)**;
+- у записи домена **Proxied** (оранжевое облако): с DNS only браузер придёт
+  на 443 сервера;
+- режим SSL/TLS **Full (strict)**; если в зоне есть другие Proxied записи —
+  Configuration Rule только для этого домена;
 - Origin Rule на порт 2083;
 - Bypass cache для `/api/*` и `/d/*`.
+
+Если у провайдера есть свой файрвол, откройте в нём TCP 2083.
 
 ### Повторный запуск
 
