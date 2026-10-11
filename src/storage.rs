@@ -55,6 +55,67 @@ impl Zone {
     }
 }
 
+/// Result of [`migrate_admin_home`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum AdminHomeMigration {
+    /// The name was already lowercase, or there was nothing to move.
+    NotNeeded,
+    /// `home/<ADMIN_USERNAME as written>` was renamed to the lowercase name.
+    Moved,
+    /// Both folders exist: nothing was touched, the lowercase one is used.
+    BothExist,
+}
+
+/// Up to 1.12.0 the admin name was used exactly as written in ADMIN_USERNAME,
+/// so `Maxim` kept personal files in `home/Maxim`; now the name is lowercase
+/// (see `config::normalize_admin_username`). Rename the folder once so those
+/// files stay visible. Never merges or deletes: if both folders exist, the
+/// operator decides what to keep.
+pub fn migrate_admin_home(
+    upload_dir: &Path,
+    configured: &str,
+    admin: &str,
+) -> io::Result<AdminHomeMigration> {
+    use crate::paths::validate_segment;
+    if configured == admin
+        || validate_segment(configured).is_err()
+        || validate_segment(admin).is_err()
+    {
+        return Ok(AdminHomeMigration::NotNeeded);
+    }
+    let home = upload_dir.join(HOME_DIR);
+    let old = home.join(configured);
+    let new = home.join(admin);
+    let old_meta = match fs::symlink_metadata(&old) {
+        Ok(meta) if meta.is_dir() => meta,
+        // A symlink or a file under the old name is not ours to move.
+        Ok(_) => return Ok(AdminHomeMigration::NotNeeded),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(AdminHomeMigration::NotNeeded),
+        Err(e) => return Err(e),
+    };
+    match fs::symlink_metadata(&new) {
+        // Case-insensitive file system: both names point at the same folder.
+        Ok(meta) if same_inode(&meta, &old_meta) => Ok(AdminHomeMigration::NotNeeded),
+        Ok(_) => Ok(AdminHomeMigration::BothExist),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            fs::rename(&old, &new)?;
+            Ok(AdminHomeMigration::Moved)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(unix)]
+fn same_inode(a: &fs::Metadata, b: &fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    a.dev() == b.dev() && a.ino() == b.ino()
+}
+
+#[cfg(not(unix))]
+fn same_inode(_: &fs::Metadata, _: &fs::Metadata) -> bool {
+    false
+}
+
 /// Root directory of a zone: `shared/` is visible to everyone, `my` maps to
 /// the per-user `home/<username>/` directory nobody else can reach — the
 /// username always comes from the authenticated session or token, never from
@@ -596,6 +657,74 @@ pub(crate) fn test_directory(tag: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn admin_home_with_capital_letters_is_renamed_once() {
+        let dir = test_directory("admin-home");
+        let old = dir.join(HOME_DIR).join("Maxim");
+        fs::create_dir_all(old.join("photos")).unwrap();
+        fs::write(old.join("photos").join("cat.jpg"), b"cat").unwrap();
+        assert_eq!(
+            migrate_admin_home(&dir, "Maxim", "maxim").unwrap(),
+            AdminHomeMigration::Moved
+        );
+        let new = dir.join(HOME_DIR).join("maxim");
+        assert_eq!(
+            fs::read(new.join("photos").join("cat.jpg")).unwrap(),
+            b"cat"
+        );
+        // Second start: nothing left to move.
+        assert_eq!(
+            migrate_admin_home(&dir, "Maxim", "maxim").unwrap(),
+            AdminHomeMigration::NotNeeded
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn admin_home_is_never_merged_or_overwritten() {
+        let dir = test_directory("admin-home");
+        let old = dir.join(HOME_DIR).join("Maxim");
+        let new = dir.join(HOME_DIR).join("maxim");
+        fs::create_dir_all(&old).unwrap();
+        fs::create_dir_all(&new).unwrap();
+        fs::write(old.join("a.txt"), b"old").unwrap();
+        fs::write(new.join("b.txt"), b"new").unwrap();
+        let outcome = migrate_admin_home(&dir, "Maxim", "maxim").unwrap();
+        // On a case-insensitive file system both names are one folder.
+        assert!(matches!(
+            outcome,
+            AdminHomeMigration::BothExist | AdminHomeMigration::NotNeeded
+        ));
+        assert!(old.join("a.txt").exists() && new.join("b.txt").exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn admin_home_migration_skips_odd_names_and_missing_folders() {
+        let dir = test_directory("admin-home");
+        fs::create_dir_all(dir.join(HOME_DIR)).unwrap();
+        for (configured, admin) in [
+            ("admin", "admin"),
+            ("Maxim", "maxim"),
+            ("../X", "../x"),
+            ("", "admin"),
+        ] {
+            assert_eq!(
+                migrate_admin_home(&dir, configured, admin).unwrap(),
+                AdminHomeMigration::NotNeeded,
+                "{configured}"
+            );
+        }
+        // A file under the old name is left alone.
+        fs::write(dir.join(HOME_DIR).join("Olga"), b"file").unwrap();
+        assert_eq!(
+            migrate_admin_home(&dir, "Olga", "olga").unwrap(),
+            AdminHomeMigration::NotNeeded
+        );
+        assert!(!dir.join(HOME_DIR).join("olga").exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn url_segments_preserve_special_and_unicode_names() {

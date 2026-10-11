@@ -145,6 +145,19 @@ fn load_secret() -> Vec<u8> {
     (0..64).map(|_| rand::random::<u8>()).collect()
 }
 
+/// Admin login as the app compares it: trimmed and lowercase, `admin` when unset.
+/// The login form and participant names are lowercase, so up to 1.12.0 an
+/// `ADMIN_USERNAME=Maxim` could never sign in on the website; the admin's old
+/// `home/Maxim` folder is renamed once by `storage::migrate_admin_home`.
+pub fn normalize_admin_username(raw: &str) -> String {
+    let name = raw.trim().to_lowercase();
+    if name.is_empty() {
+        "admin".to_string()
+    } else {
+        name
+    }
+}
+
 impl AppConfig {
     pub fn from_env() -> Result<Self, String> {
         let admin_password_hash = env::var("ADMIN_PASSWORD_HASH").map_err(|_| {
@@ -194,7 +207,9 @@ impl AppConfig {
                 env::var("USERS_FILE").unwrap_or_else(|_| DEFAULT_USERS_FILE.to_string()),
             ),
             max_file_size: max_file_size_mb * 1024 * 1024,
-            admin_username: env::var("ADMIN_USERNAME").unwrap_or_else(|_| "admin".to_string()),
+            admin_username: normalize_admin_username(
+                &env::var("ADMIN_USERNAME").unwrap_or_default(),
+            ),
             admin_password_hash,
             cookie_secure: env_flag("COOKIE_SECURE"),
             telegram: telegram_from_env()?,
@@ -250,5 +265,19 @@ impl AppConfig {
     /// Cookie signing key derived from the session secret.
     pub fn session_key(&self) -> Key {
         Key::from(&self.secret)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_admin_username;
+
+    #[test]
+    fn admin_username_is_trimmed_and_lowercase() {
+        assert_eq!(normalize_admin_username("Maxim"), "maxim");
+        assert_eq!(normalize_admin_username("  ADMIN \n"), "admin");
+        assert_eq!(normalize_admin_username("admin"), "admin");
+        assert_eq!(normalize_admin_username(""), "admin");
+        assert_eq!(normalize_admin_username("   "), "admin");
     }
 }
