@@ -105,6 +105,44 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
+    // ADMIN_USERNAME is compared in lowercase since 1.12.1 (the login form and
+    // participant names are lowercase). Only a name that actually changed needs
+    // the checks below.
+    let configured_admin = std::env::var("ADMIN_USERNAME").unwrap_or_default();
+    let configured_admin = configured_admin.trim();
+    if !configured_admin.is_empty() && configured_admin != config.admin_username {
+        // A participant registered under the lowercase name would now be taken
+        // for the admin: refuse to start rather than mix two accounts.
+        if user_store.user_exists(&config.admin_username) {
+            eprintln!(
+                "ADMIN_USERNAME={configured_admin}: a participant named \"{}\" already exists; rename one of them",
+                config.admin_username
+            );
+            std::process::exit(1);
+        }
+        match storage::migrate_admin_home(
+            &config.upload_dir,
+            configured_admin,
+            &config.admin_username,
+        ) {
+            Ok(storage::AdminHomeMigration::Moved) => tracing::info!(
+                from = configured_admin,
+                to = %config.admin_username,
+                "admin home folder renamed to the lowercase admin name"
+            ),
+            Ok(storage::AdminHomeMigration::BothExist) => tracing::warn!(
+                old = configured_admin,
+                used = %config.admin_username,
+                "both admin home folders exist; files in the old one are not shown, move them by hand"
+            ),
+            Ok(storage::AdminHomeMigration::NotNeeded) => {}
+            Err(e) => {
+                eprintln!("Failed to rename the admin home folder: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let handlebars = web::Data::new(files::templates());
 
     let session_key = config.session_key();
