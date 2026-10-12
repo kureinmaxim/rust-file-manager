@@ -32,6 +32,7 @@ pub const ACCESS_TTL_SECS: u64 = 12 * 60 * 60;
 pub struct TokenKeys {
     access: [u8; 32],
     url: [u8; 32],
+    pc: [u8; 32],
 }
 
 impl TokenKeys {
@@ -39,11 +40,14 @@ impl TokenKeys {
         let hk = Hkdf::<Sha256>::new(None, secret);
         let mut access = [0u8; 32];
         let mut url = [0u8; 32];
+        let mut pc = [0u8; 32];
         hk.expand(b"rfm/v1/access", &mut access)
             .expect("32 bytes is a valid HKDF length");
         hk.expand(b"rfm/v1/url", &mut url)
             .expect("32 bytes is a valid HKDF length");
-        Self { access, url }
+        hk.expand(b"rfm/v1/pc", &mut pc)
+            .expect("32 bytes is a valid HKDF length");
+        Self { access, url, pc }
     }
 }
 
@@ -92,6 +96,33 @@ pub fn issue_access(keys: &TokenKeys, claims: &AccessClaims) -> String {
 /// Signature and expiry only; the caller re-checks the user and token_version.
 pub fn verify_access(keys: &TokenKeys, token: &str, now: u64) -> Option<AccessClaims> {
     let claims: AccessClaims = verify(&keys.access, token.strip_prefix(ACCESS_PREFIX)?)?;
+    (claims.exp > now).then_some(claims)
+}
+
+/// Prefix of computer tokens («Загрузить с ПК»): `pc1.<payload>.<mac>`.
+pub const PC_PREFIX: &str = "pc1.";
+
+/// A computer paired from the Mini App. Its own key: the token is accepted
+/// only by the chunked upload API, never as a Mini App session.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PcClaims {
+    pub u: String,
+    pub tv: u32,
+    /// Telegram user id that approved the computer.
+    pub tg: i64,
+    /// Pairing session id; revoked or idle sessions are refused on use.
+    pub sid: String,
+    pub iat: u64,
+    pub exp: u64,
+}
+
+pub fn issue_pc(keys: &TokenKeys, claims: &PcClaims) -> String {
+    format!("{PC_PREFIX}{}", sign(&keys.pc, claims))
+}
+
+/// Signature and expiry only; the caller re-checks the user and the session.
+pub fn verify_pc(keys: &TokenKeys, token: &str, now: u64) -> Option<PcClaims> {
+    let claims: PcClaims = verify(&keys.pc, token.strip_prefix(PC_PREFIX)?)?;
     (claims.exp > now).then_some(claims)
 }
 
@@ -203,5 +234,28 @@ mod tests {
         assert!(verify_url(&k, &url, 999).is_some());
         assert_eq!(verify_access(&k, &format!("v1.{url}"), 1), None);
         assert!(verify_url(&k, &url, 1000).is_none());
+    }
+
+    #[test]
+    fn computer_tokens_are_a_separate_purpose() {
+        let k = keys();
+        let claims = PcClaims {
+            u: "anna".into(),
+            tv: 3,
+            tg: 42,
+            sid: "s1".into(),
+            iat: 100,
+            exp: 1000,
+        };
+        let pc = issue_pc(&k, &claims);
+        assert!(pc.starts_with("pc1."));
+        assert_eq!(verify_pc(&k, &pc, 999), Some(claims));
+        assert_eq!(verify_pc(&k, &pc, 1000), None);
+        // A computer token is no Mini App session, and the reverse.
+        let body = &pc["pc1.".len()..];
+        assert_eq!(verify_access(&k, &format!("v1.{body}"), 1), None);
+        let access_body = issue_access(&k, &access(1000))[3..].to_string();
+        assert_eq!(verify_pc(&k, &format!("pc1.{access_body}"), 1), None);
+        assert_eq!(verify_url(&k, body, 1), None);
     }
 }

@@ -10,6 +10,8 @@ const DEFAULT_USERS_FILE: &str = "users.json";
 const DEFAULT_MAX_FILE_SIZE_MB: usize = 200;
 const DEFAULT_MAX_CHUNKED_FILE_SIZE_MB: u64 = 4096;
 const DEFAULT_UPLOAD_CHUNK_SIZE_MB: usize = 8;
+/// Disk space uploads never take: the system, logs and the bot need it too.
+const DEFAULT_UPLOAD_RESERVE_MB: u64 = 512;
 const DEFAULT_INIT_DATA_MAX_AGE_SECS: u64 = 3600;
 /// Shortest accepted INTERNAL_API_TOKEN: the internal API trusts the bot with
 /// any Telegram id, so the token must not be guessable.
@@ -46,6 +48,8 @@ pub struct AppConfig {
     pub internal_api_token: Option<String>,
     pub max_chunked_file_size: u64,
     pub upload_chunk_size: usize,
+    /// Free disk space left untouched by uploads (UPLOAD_RESERVE_MB).
+    pub upload_reserve: u64,
     /// Session secret material (cookie key and derived token keys). Not Debug.
     pub secret: Vec<u8>,
 }
@@ -226,6 +230,9 @@ impl AppConfig {
                 .clamp(1, 64)
                 * 1024
                 * 1024,
+            upload_reserve: env_number("UPLOAD_RESERVE_MB", DEFAULT_UPLOAD_RESERVE_MB)?
+                * 1024
+                * 1024,
             secret: load_secret(),
         })
     }
@@ -258,6 +265,7 @@ impl AppConfig {
             internal_api_token: None,
             max_chunked_file_size: 64 * 1024 * 1024,
             upload_chunk_size: 1024 * 1024,
+            upload_reserve: 0,
             secret: vec![5u8; 64],
         }
     }

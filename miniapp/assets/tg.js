@@ -130,6 +130,32 @@ export function confirm({ title, message, ok = 'OK', destructive = false }) {
   return Promise.resolve(window.confirm(`${title}\n\n${message}`));
 }
 
+/** Telegram's QR scanner: Bot API 6.4, phones only (desktop clients have no
+ * camera dialog). */
+export const canScanQr = () => at('6.4') && ['ios', 'android', 'android_x'].includes(W.platform);
+
+/** Scan until `accept(text)` is true; resolves with that text, or null when
+ * the user closes the scanner (the close event exists since Bot API 7.7). */
+export function scanQr(text, accept) {
+  return new Promise((resolve) => {
+    let done = false;
+    const closed = () => {
+      if (done) return;
+      done = true;
+      W.offEvent('scanQrPopupClosed', closed);
+      resolve(null);
+    };
+    W.onEvent('scanQrPopupClosed', closed);
+    W.showScanQrPopup({ text }, (data) => {
+      if (done || !accept(data)) return false; // another QR code: keep scanning
+      done = true;
+      W.offEvent('scanQrPopupClosed', closed);
+      resolve(data);
+      return true;
+    });
+  });
+}
+
 export function closingConfirmation(on) {
   if (!at('6.2')) return;
   if (on) W.enableClosingConfirmation();

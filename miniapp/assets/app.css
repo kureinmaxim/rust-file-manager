@@ -66,6 +66,8 @@ button.row:active, .tap:active { transform: scale(.985); }
 .rv { font-size: 15px; color: var(--hint); white-space: nowrap; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 4px; }
 .chev { width: 16px; height: 16px; color: var(--hint); opacity: .7; }
 .danger-text { color: var(--danger); }
+.warn-text { color: var(--c-warn); }
+.mono { font-family: var(--mono); }
 
 .tile { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #fff; flex-shrink: 0; background: var(--k, var(--accent)); }
 .tile .icon { width: 18px; height: 18px; stroke-width: 2; }
@@ -100,6 +102,8 @@ button.row:active, .tap:active { transform: scale(.985); }
 .tbtn { border: 0; background: transparent; color: var(--link); display: inline-flex; align-items: center; gap: 5px; font-size: 14px; padding: 6px 2px; min-height: 40px; }
 .tbtn .icon { width: 17px; height: 17px; }
 .tbtn:disabled { color: var(--hint); cursor: default; }
+.tbtn.danger { color: var(--danger); }
+button.link { border: 0; background: none; padding: 0; color: var(--link); font-size: inherit; min-height: 32px; }
 .ib { width: 40px; height: 40px; border-radius: 9px; border: 0; background: transparent; color: var(--hint); display: grid; place-items: center; }
 .ib[aria-pressed="true"] { background: var(--surface); color: var(--link); }
 .ib .icon { width: 19px; height: 19px; }

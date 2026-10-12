@@ -15,6 +15,10 @@ mod files_tests;
 mod internal;
 mod miniapp;
 mod paths;
+mod pc;
+#[cfg(test)]
+mod pc_tests;
+mod qr;
 mod ratelimit;
 mod reply;
 mod storage;
@@ -149,6 +153,8 @@ async fn main() -> std::io::Result<()> {
     let token_keys = web::Data::new(tokens::TokenKeys::derive(&config.secret));
     let link_limiter = web::Data::new(api::link_limiter());
     let upload_locks = web::Data::new(uploads::UploadLocks::default());
+    // «Загрузить с ПК»: pairings and computer sessions, in memory.
+    let computers = web::Data::new(pc::Computers::default());
     let miniapp_enabled = config.telegram.is_some();
     let config = web::Data::new(config);
 
@@ -209,6 +215,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(token_keys.clone())
             .app_data(link_limiter.clone())
             .app_data(upload_locks.clone())
+            .app_data(computers.clone())
             .app_data(public_events.clone())
             .app_data(public_jobs.clone())
             // Signed download links carry a token in the path: keep them out of the access log.
