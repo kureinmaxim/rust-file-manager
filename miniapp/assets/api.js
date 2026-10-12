@@ -5,6 +5,9 @@ import { initData } from './tg.js';
 
 let token = null;
 let current = { user: null, limits: null, version: '', features: {} };
+// Set on the computer's page («Загрузить с ПК»): there is no initData to renew
+// its token, so a 401 means the phone or the timeout disconnected it.
+let onComputerEnd = null;
 
 export class ApiError extends Error {
   constructor(message, status = 0, code = '', body = null) {
@@ -37,6 +40,23 @@ async function postPublic(path, json) {
   }
   const body = await res.json().catch(() => ({}));
   return { res, body };
+}
+
+/** The computer's page works with the token from pairing (`/pc/poll`). */
+export function useComputerSession(body, ended) {
+  token = body.access_token;
+  current = { user: body.user, limits: body.limits, version: '', features: {} };
+  onComputerEnd = ended;
+}
+
+/** After a 401: a fresh Mini App session from initData; false if impossible. */
+export async function renewSession() {
+  if (onComputerEnd) {
+    onComputerEnd();
+    return false;
+  }
+  const renewed = await openSession().catch(() => null);
+  return Boolean(renewed && renewed.ok);
 }
 
 /** Exchange initData for a session. `{ ok: true }` or `{ ok: false, notLinked }`. */
@@ -77,9 +97,8 @@ export async function api(path, { method = 'GET', json, retry = true } = {}) {
   } catch {
     throw new ApiError('Нет связи с сервером. Проверьте интернет и повторите.', 0, 'network');
   }
-  if (res.status === 401 && retry) {
-    const renewed = await openSession().catch(() => null);
-    if (renewed && renewed.ok) return api(path, { method, json, retry: false });
+  if (res.status === 401 && retry && (await renewSession())) {
+    return api(path, { method, json, retry: false });
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(data.message || `Ошибка ${res.status}`, res.status, data.code, data);

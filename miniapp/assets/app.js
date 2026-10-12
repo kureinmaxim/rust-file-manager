@@ -4,7 +4,9 @@
 import { html, render, useEffect, useRef, useState } from './vendor/preact-htm.module.js';
 import * as tg from './tg.js';
 import { api, ApiError, forgetLinks, linkAccount, openSession, qs, register, session, signedUrl } from './api.js';
+import { computerCode, extOf, fmtBytes, KIND_COLOR, KIND_ICON, plural } from './format.js';
 import * as up from './upload.js';
+import { CapacityCard, Icon, QueueRow } from './widgets.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -22,22 +24,8 @@ const CATS = {
 };
 const catMeta = (c) => CATS[c] || { k: 'var(--c-other)', icon: 'file' };
 const catLabel = (c) => (CATS[c] && CATS[c].label) || c;
-const KIND_ICON = { image: 'image', video: 'film', audio: 'music', pdf: 'file-text', text: 'file-text', archive: 'archive', other: 'file' };
-const KIND_COLOR = { image: 'var(--c-photo)', video: 'var(--c-video)', audio: 'var(--c-video)', pdf: 'var(--c-doc)', text: 'var(--c-doc)', archive: 'var(--c-backup)', other: 'var(--c-other)' };
 const ZONE_TITLE = { my: 'Мои файлы', shared: 'Общие файлы' };
 const MONTHS = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
-
-function fmtBytes(n) {
-  if (!n) return '0 Б';
-  const units = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'];
-  let i = 0;
-  while (n >= 1024 && i < units.length - 1) {
-    n /= 1024;
-    i++;
-  }
-  const value = i === 0 ? String(Math.round(n)) : n.toFixed(n < 10 ? 1 : 0).replace('.', ',');
-  return `${value} ${units[i]}`;
-}
 
 function fmtDate(sec) {
   if (!sec) return '';
@@ -52,28 +40,7 @@ function fmtDate(sec) {
   return d.getFullYear() === now.getFullYear() ? date : `${date} ${d.getFullYear()}`;
 }
 
-const plural = (n, one, few, many) => {
-  const a = n % 10;
-  const b = n % 100;
-  return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many;
-};
 const joinPath = (a, b) => (a ? `${a}/${b}` : b);
-const extOf = (name) => {
-  const i = name.lastIndexOf('.');
-  return i > 0 && name.length - i <= 5 ? name.slice(i + 1) : '';
-};
-const EXT_KIND = {
-  image: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'avif', 'bmp'],
-  video: ['mp4', 'mov', 'mkv', 'webm', 'avi', 'm4v'],
-  audio: ['mp3', 'm4a', 'ogg', 'wav', 'flac'],
-  pdf: ['pdf'],
-  archive: ['zip', 'gz', 'tgz', 'tar', '7z', 'rar', 'xz'],
-  text: ['txt', 'md', 'json', 'yml', 'yaml', 'toml', 'conf', 'log', 'csv'],
-};
-const guessKind = (name) => {
-  const ext = (name.split('.').pop() || '').toLowerCase();
-  return Object.keys(EXT_KIND).find((k) => EXT_KIND[k].includes(ext)) || 'other';
-};
 const greeting = () => {
   const h = new Date().getHours();
   return h < 5 ? 'Доброй ночи' : h < 12 ? 'Доброе утро' : h < 18 ? 'Добрый день' : 'Добрый вечер';
@@ -94,10 +61,6 @@ async function sendToChat(item, close) {
   } catch (e) {
     showError(e);
   }
-}
-
-function Icon({ name, cls = 'icon' }) {
-  return html`<svg class=${cls} aria-hidden="true"><use href=${`#i-${name}`} /></svg>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -419,6 +382,9 @@ function Home() {
       <button class="row tap" type="button" onClick=${() => go({ name: 'uploads', dest: { scope: 'my', category: null, path: '' } })}>
         <span class="tile" style="--k:var(--accent)"><${Icon} name="upload" /></span><span class="rt"><b>Загрузки</b></span>
         <span class="rv">${activeItems.length ? `${activeItems.length} в работе` : ''}<${Icon} name="right" cls="icon chev" /></span></button>
+      ${canUseComputer() && html`<button class="row tap" type="button" onClick=${() => go({ name: 'computers' })}>
+        <span class="tile" style="--k:var(--c-doc)"><${Icon} name="monitor" /></span><span class="rt"><b>С компьютера</b><small>Загрузка через браузер по QR-коду</small></span>
+        <span class="rv"><${Icon} name="right" cls="icon chev" /></span></button>`}
       <button class="row tap" type="button" onClick=${() => go({ name: 'settings' })}>
         <span class="tile" style="--k:var(--c-other)"><${Icon} name="settings" /></span><span class="rt"><b>Настройки</b></span>
         <span class="rv"><${Icon} name="right" cls="icon chev" /></span></button>
@@ -579,6 +545,16 @@ function Browse({ screen }) {
     ${body}`;
 }
 
+/** Where a finished upload went, for its queue row. */
+function uploadedTo(item) {
+  return item.result.direction
+    ? `отправлено${item.result.name !== item.name ? ` как ${item.result.name}` : ''}`
+    : `готово → ${catLabel(item.result.category)}${item.result.path ? ` › ${item.result.path}` : ''}`;
+}
+
+/** «Загрузить с ПК» is offered by servers that support it. */
+const canUseComputer = () => Boolean(session().features && session().features.pc_upload);
+
 function Uploads({ screen }) {
   const dest = screen.dest;
   const queue = useQueue();
@@ -586,6 +562,9 @@ function Uploads({ screen }) {
   const [over, setOver] = useState(false);
   const pick = () => filesRef.current && filesRef.current.click();
   useMainButton({ text: 'Выбрать файлы', onClick: pick }, []);
+  useEffect(() => {
+    up.refreshCapacity();
+  }, []);
 
   const add = (list) => {
     const files = Array.from(list || []);
@@ -613,38 +592,140 @@ function Uploads({ screen }) {
         <label class="btn" for="pick-files"><${Icon} name="file" />Файлы</label>
         <input id="pick-camera" class="file-input" type="file" accept="image/*,video/*" capture="environment" onChange=${(e) => { add(e.currentTarget.files); e.currentTarget.value = ''; }} />
         <label class="btn secondary" for="pick-camera"><${Icon} name="camera" />Камера</label>
+        ${canUseComputer() && dest.scope !== 'exchange' && html`<button class="btn secondary" type="button" onClick=${() => go({ name: 'computers' })}><${Icon} name="monitor" />С компьютера</button>`}
       </div>
     </div>
+    <${CapacityCard} longHint=${canUseComputer()
+      ? 'В фоне телефон может прервать загрузку. Не сворачивайте Telegram или загрузите большие файлы с компьютера — кнопка «С компьютера».'
+      : 'В фоне телефон может прервать загрузку: не сворачивайте Telegram, пока она идёт.'} />
     ${queue.length > 0 && html`
       <p class="group-title"><span>Очередь</span>${hasFinished && html`<button type="button" onClick=${() => up.clearFinished()}>Убрать готовые</button>`}</p>
-      <div class="group">${queue.map((item) => html`<${QueueRow} item=${item} key=${item.key} />`)}</div>`}
+      <div class="group">${queue.map((item) => html`<${QueueRow} item=${item} where=${uploadedTo} key=${item.key} />`)}</div>`}
     <p class="note">Можно ненадолго свернуть Telegram. Если загрузка прервётся, откройте этот экран и выберите тот же файл — она продолжится с места остановки.</p>`;
 }
 
-function QueueRow({ item }) {
-  const pct = item.size ? Math.min(100, Math.round(((item.sent + item.inFlight) / item.size) * 100)) : 100;
-  let state;
-  let bar = null;
-  if (item.state === 'up') {
-    state = `${pct} %${item.speed ? ` · ${fmtBytes(item.speed)}/с` : ''}`;
-    bar = html`<span class="bar"><i style=${`width:${pct}%`}></i></span>`;
-  } else if (item.state === 'wait') state = 'ожидает';
-  else if (item.state === 'ok') {
-    state = item.result.direction
-      ? `отправлено${item.result.name !== item.name ? ` как ${item.result.name}` : ''}`
-      : `готово → ${catLabel(item.result.category)}${item.result.path ? ` › ${item.result.path}` : ''}`;
+const fmtTime = (sec) => {
+  const d = new Date(sec * 1000);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+/** Approve a computer by its code: show which one asks, then connect it. */
+async function connectComputer(raw, reload) {
+  const code = computerCode(raw);
+  if (!code) {
+    tg.haptic.error();
+    toast('Это не код компьютера. Он выглядит как ABCD-2345.', 'error');
+    return;
   }
-  else if (item.state === 'err') {
-    state = item.error;
-    bar = html`<span class="bar err"><i style=${`width:${pct}%`}></i></span>`;
-  } else state = 'отменено';
-  return html`<div class="row wide">
-    <${Thumb} item=${{ type: 'file', id: `queue-${item.key}`, name: item.name, kind: item.result ? item.result.kind : guessKind(item.name), local: true }} />
-    <span class="rt"><b>${item.name}</b><small class=${item.state === 'err' ? 'danger-text' : ''}>${fmtBytes(item.size)} · ${state}${item.note ? ` · ${item.note}` : ''}</small>${bar}</span>
-    ${item.state === 'ok' && html`<span class="qstate ok"><${Icon} name="check" /></span>`}
-    ${item.state === 'err' && html`<button class="tbtn" type="button" onClick=${() => up.retry(item)}><${Icon} name="refresh" />Повторить</button>`}
-    ${(item.state === 'up' || item.state === 'wait') && html`<button class="ib" type="button" aria-label=${`Отменить загрузку ${item.name}`} onClick=${() => up.cancel(item)}><${Icon} name="x" /></button>`}
-  </div>`;
+  try {
+    const found = await api('/computers/lookup', { method: 'POST', json: { code } });
+    const ok = await tg.confirm({
+      title: 'Подключить компьютер?',
+      message: `${found.agent}, код ${found.code}. Он сможет добавлять файлы в «Мои файлы». Подключайте только свой компьютер.`,
+      ok: 'Подключить',
+    });
+    if (!ok) return;
+    await api('/computers/approve', { method: 'POST', json: { code } });
+    tg.haptic.ok();
+    toast('Компьютер подключён — перетащите файлы в окно браузера');
+    reload();
+  } catch (e) {
+    showError(e);
+  }
+}
+
+function Computers({ screen }) {
+  const [res, setRes] = useState(null);
+  const [error, setError] = useState(null);
+  const load = () => {
+    let alive = true;
+    setError(null);
+    api('/computers')
+      .then((r) => alive && setRes(r))
+      .catch((e) => alive && setError(e));
+    return () => {
+      alive = false;
+    };
+  };
+  useEffect(load, []);
+  // A code from a deep link (`startapp=pc_…`: the phone's camera), once.
+  useEffect(() => {
+    if (screen.code) connectComputer(screen.code, load);
+  }, []);
+  // Counters and end times change while a computer uploads.
+  useEffect(() => {
+    const timer = setInterval(load, 15000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const scanner = tg.canScanQr();
+  async function scan() {
+    const text = await tg.scanQr('Наведите камеру на QR-код на странице /pc', (t) => Boolean(computerCode(t)));
+    if (text) connectComputer(text, load);
+  }
+  async function typeCode() {
+    const value = await ask({ title: 'Код с экрана компьютера', message: 'Он под QR-кодом на странице /pc', placeholder: 'ABCD-2345', ok: 'Дальше' });
+    if (value) connectComputer(value, load);
+  }
+  useMainButton(scanner ? { text: 'Сканировать QR-код', onClick: scan } : { text: 'Ввести код', onClick: typeCode }, [scanner]);
+
+  const url = (res && res.pc_url) || `${location.origin}/pc`;
+  async function copyUrl() {
+    try {
+      await navigator.clipboard.writeText(url);
+      tg.haptic.ok();
+      toast('Ссылка скопирована');
+    } catch {
+      toast(`Откройте на компьютере: ${url}`);
+    }
+  }
+  async function disconnect(c) {
+    const ok = await tg.confirm({
+      title: 'Отключить компьютер?',
+      message: `${c.agent} больше не сможет загружать файлы. Незавершённые загрузки остановятся.`,
+      ok: 'Отключить',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await api(`/computers/${encodeURIComponent(c.id)}`, { method: 'DELETE' });
+      tg.haptic.warn();
+      toast('Компьютер отключён');
+      load();
+    } catch (e) {
+      showError(e);
+    }
+  }
+
+  let list;
+  if (error) list = html`<${ErrorBox} error=${error} onRetry=${load} />`;
+  else if (!res) list = html`<${Skeleton} rows=${1} />`;
+  else if (res.computers.length === 0) list = html`<div class="group"><div class="empty"><${Icon} name="monitor" />Пока ни одного</div></div>`;
+  else {
+    list = html`<div class="group">${res.computers.map((c) => html`<div class="row wide" key=${c.id}>
+      <span class="ftile" style="--k:var(--c-doc)"><${Icon} name="monitor" /></span>
+      <span class="rt"><b>${c.agent}</b><small>${c.files ? `${c.files} ${plural(c.files, 'файл', 'файла', 'файлов')}, ${fmtBytes(c.bytes)}` : 'файлов ещё нет'} · до ${fmtTime(c.ends_at)} без загрузок</small></span>
+      <button class="tbtn danger" type="button" onClick=${() => disconnect(c)}>Отключить</button></div>`)}</div>`;
+  }
+
+  return html`
+    <div class="title"><div><h1>С компьютера</h1><small>Файлы попадут в «Мои файлы» по типу</small></div></div>
+    <div class="group">
+      <div class="row"><span class="tile" style="--k:var(--c-doc)"><${Icon} name="monitor" /></span>
+        <span class="rt"><b>Откройте на компьютере</b><small class="mono">${url}</small></span>
+        <button class="tbtn" type="button" onClick=${copyUrl}><${Icon} name="copy" />Копировать</button></div>
+      <div class="row"><span class="tile" style="--k:var(--c-prog)"><${Icon} name="scan" /></span>
+        <span class="rt"><b>${scanner ? 'Отсканируйте QR-код' : 'Введите код с экрана'}</b>
+          <small>${scanner
+            ? 'Кнопка внизу откроет сканер Telegram. Подойдёт и камера телефона — она откроет это приложение.'
+            : 'Код вида ABCD-2345 под QR-кодом. С телефона QR-код можно отсканировать камерой.'}</small></span></div>
+      <div class="row"><span class="tile" style="--k:var(--accent)"><${Icon} name="upload" /></span>
+        <span class="rt"><b>Перетащите файлы в окно браузера</b><small>Страница покажет свободное место и сколько осталось ждать</small></span></div>
+    </div>
+    ${scanner && html`<p class="note"><button class="link" type="button" onClick=${typeCode}>Ввести код вручную</button></p>`}
+    <p class="group-title"><span>Подключённые компьютеры</span></p>
+    ${list}
+    <p class="note" style="margin-top:0">Компьютер может только добавлять файлы в «Мои файлы»; ваши файлы он не видит. Сеанс закрывается через 30 минут без загрузок или кнопкой «Отключить».</p>`;
 }
 
 function Exchange({ screen }) {
@@ -1041,8 +1122,9 @@ function Link({ info, onDone }) {
 // App
 // ---------------------------------------------------------------------------
 
-/** Where a deep link asks to start: `?open=exchange[:<user>]` (bot notifications)
- * or `startapp=exchange`. Used once, on the first successful start. */
+/** Where a deep link asks to start: `?open=exchange[:<user>]` (bot notifications),
+ * `startapp=exchange`, or `startapp=pc_<code>` (the QR code of `/pc` scanned
+ * with the phone's camera). Used once, on the first successful start. */
 let deepLink = (() => {
   try {
     return new URLSearchParams(location.search).get('open') || tg.startParam() || '';
@@ -1059,6 +1141,7 @@ function startStack(user) {
     const owner = link.slice('exchange:'.length);
     if (owner && user && user.is_admin) stack.push({ name: 'exchange', owner });
   }
+  if (link.startsWith('pc_')) stack.push({ name: 'computers', code: link });
   return stack;
 }
 
@@ -1120,6 +1203,7 @@ function App() {
   else if (screen.name === 'uploads') content = html`<${Uploads} screen=${screen} />`;
   else if (screen.name === 'exchange') content = html`<${Exchange} screen=${screen} key=${screen.owner || ''} />`;
   else if (screen.name === 'settings') content = html`<${Settings} onRelink=${start} />`;
+  else if (screen.name === 'computers') content = html`<${Computers} screen=${screen} />`;
   else content = html`<${Home} />`;
 
   return html`${content}

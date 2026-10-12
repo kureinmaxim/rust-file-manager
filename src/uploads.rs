@@ -13,8 +13,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
+use actix_web::dev::Payload;
+use actix_web::error::InternalError;
 use actix_web::http::StatusCode;
-use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse};
+use actix_web::{delete, get, post, put, web, FromRequest, HttpMessage, HttpRequest, HttpResponse};
 use futures_util::StreamExt;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
@@ -24,8 +26,11 @@ use serde_json::json;
 use crate::api::{finish_upload, upload_category, ApiUser};
 use crate::config::AppConfig;
 use crate::paths::RelPath;
+use crate::pc::{Computers, PcUser};
 use crate::reply::{self, now_secs};
-use crate::storage::{exact_file_name, folder_dir, StorageError, Zone, STAGING_DIR};
+use crate::storage::{
+    disk_usage, exact_file_name, folder_dir, format_bytes, StorageError, Zone, STAGING_DIR,
+};
 use crate::users::UserStore;
 
 /// Unfinished uploads per user; more must be finished or cancelled first.
@@ -59,6 +64,46 @@ impl Drop for LockGuard<'_> {
     }
 }
 
+/// Who uses the chunked upload API: a Mini App session, or a computer
+/// paired with it («Загрузить с ПК»). A computer only adds files to «Мои
+/// файлы» by file type and sees only the unfinished uploads of its browser.
+pub struct Uploader {
+    pub user: ApiUser,
+    /// The paired computer: `(session id, device id)`.
+    pub pc: Option<(String, String)>,
+}
+
+impl FromRequest for Uploader {
+    type Error = actix_web::Error;
+    type Future = std::future::Ready<Result<Self, Self::Error>>;
+
+    fn from_request(req: &HttpRequest, _: &mut Payload) -> Self::Future {
+        let ext = req.extensions();
+        let found = match (ext.get::<ApiUser>(), ext.get::<PcUser>()) {
+            (Some(user), _) => Some(Self {
+                user: user.clone(),
+                pc: None,
+            }),
+            (None, Some(pc)) => Some(Self {
+                user: pc.user.clone(),
+                pc: Some((pc.session.clone(), pc.device.clone())),
+            }),
+            (None, None) => None,
+        };
+        std::future::ready(found.ok_or_else(|| {
+            InternalError::from_response(
+                "no upload session",
+                reply::error(
+                    StatusCode::UNAUTHORIZED,
+                    "unauthorized",
+                    "Сеанс истёк — откройте приложение заново",
+                ),
+            )
+            .into()
+        }))
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct UploadMeta {
     id: String,
@@ -73,11 +118,17 @@ struct UploadMeta {
     /// `category` and `path` are unused).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     exchange: Option<String>,
+    /// Device id of the paired computer that started the upload («Загрузить
+    /// с ПК»); that browser resumes it after reconnecting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    via: Option<String>,
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
+    // `capacity` before `status`: both match GET /uploads/<segment>.
     cfg.service(create)
         .service(list)
+        .service(capacity)
         .service(status)
         .service(put_chunk)
         .service(complete)
@@ -100,15 +151,53 @@ fn not_found() -> HttpResponse {
     )
 }
 
-/// Metadata of the user's own upload; another user's id is "not found".
-fn load(config: &AppConfig, user: &ApiUser, id: &str) -> Option<(UploadMeta, PathBuf)> {
+/// Metadata of the user's own upload; another user's id is "not found", and
+/// so is, for a computer, an upload started elsewhere (phone, other browser).
+fn load(config: &AppConfig, user: &Uploader, id: &str) -> Option<(UploadMeta, PathBuf)> {
     if !valid_id(id) {
         return None;
     }
-    let dir = user_dir(config, &user.username);
+    let dir = user_dir(config, &user.user.username);
     let meta: UploadMeta =
         serde_json::from_slice(&fs::read(dir.join(format!("{id}.json"))).ok()?).ok()?;
-    (meta.username == user.username).then(|| (meta, dir.join(format!("{id}.part"))))
+    let visible = meta.username == user.user.username
+        && user
+            .pc
+            .as_ref()
+            .is_none_or(|(_, device)| meta.via.as_ref() == Some(device));
+    visible.then(|| (meta, dir.join(format!("{id}.part"))))
+}
+
+/// Bytes still to arrive for all unfinished uploads of all users: space that
+/// is promised already.
+fn promised_bytes(upload_dir: &Path) -> u64 {
+    let Ok(users) = fs::read_dir(upload_dir.join(STAGING_DIR)) else {
+        return 0;
+    };
+    users
+        .flatten()
+        .filter_map(|user| fs::read_dir(user.path()).ok())
+        .flat_map(|entries| entries.flatten())
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .filter_map(|e| {
+            let meta: UploadMeta = serde_json::from_slice(&fs::read(e.path()).ok()?).ok()?;
+            Some(
+                meta.size
+                    .saturating_sub(offset(&e.path().with_extension("part"))),
+            )
+        })
+        .sum()
+}
+
+/// What can still be uploaded: free disk space minus UPLOAD_RESERVE_MB and
+/// minus the rest of unfinished uploads. `None` where the OS cannot tell.
+pub fn available_bytes(config: &AppConfig) -> Option<u64> {
+    // The nearest existing folder: UPLOAD_DIR itself is created at startup.
+    let (_, free) = config.upload_dir.ancestors().find_map(disk_usage)?;
+    Some(
+        free.saturating_sub(config.upload_reserve)
+            .saturating_sub(promised_bytes(&config.upload_dir)),
+    )
 }
 
 fn offset(part: &Path) -> u64 {
@@ -150,21 +239,30 @@ struct CreateBody {
 #[post("/uploads/")]
 async fn create(
     body: web::Json<CreateBody>,
-    user: web::ReqData<ApiUser>,
+    user: Uploader,
     config: web::Data<AppConfig>,
     store: web::Data<UserStore>,
 ) -> HttpResponse {
+    // A computer gets «Мои файлы», category by file type, nothing else.
+    let category_given = body.category.as_deref().is_some_and(|c| !c.is_empty());
+    if user.pc.is_some() && (body.scope != "my" || category_given || !body.path.is_empty()) {
+        return reply::error(
+            StatusCode::FORBIDDEN,
+            "pc_scope",
+            "С компьютера файлы загружаются только в «Мои файлы», по типу файла",
+        );
+    }
     let result = (|| -> Result<HttpResponse, StorageError> {
         let name = exact_file_name(&body.name)?.to_string();
         let (zone, category, rel, exchange) = if body.scope == "exchange" {
-            let owner = crate::exchange::check_upload_target(&store, &user, &body.with)?;
+            let owner = crate::exchange::check_upload_target(&store, &user.user, &body.with)?;
             (Zone::My, String::new(), RelPath::root(), Some(owner))
         } else {
             let zone = Zone::parse(&body.scope).ok_or(StorageError::Zone)?;
             let category = upload_category(body.category.as_deref(), &name)?;
             let rel = RelPath::parse(&body.path).map_err(StorageError::Path)?;
             // Validate the destination now (symlinks, category), not only at the end.
-            folder_dir(&config, zone, &user.username, &category, &rel)?;
+            folder_dir(&config, zone, &user.user.username, &category, &rel)?;
             (zone, category, rel, None)
         };
         if body.size > config.max_chunked_file_size {
@@ -173,11 +271,28 @@ async fn create(
                 "too_large",
                 format!(
                     "Файл больше лимита {}",
-                    crate::storage::format_bytes(config.max_chunked_file_size)
+                    format_bytes(config.max_chunked_file_size)
                 ),
             ));
         }
-        let dir = user_dir(&config, &user.username);
+        // Refuse now rather than after an hour of uploading into a full disk.
+        if let Some(available) = available_bytes(&config) {
+            if body.size > available {
+                return Ok(reply::error_with(
+                    StatusCode::INSUFFICIENT_STORAGE,
+                    json!({
+                        "code": "no_space",
+                        "message": format!(
+                            "На сервере не хватает места: файл {}, свободно для загрузок {}",
+                            format_bytes(body.size),
+                            format_bytes(available)
+                        ),
+                        "available_bytes": available,
+                    }),
+                ));
+            }
+        }
+        let dir = user_dir(&config, &user.user.username);
         fs::create_dir_all(&dir)?;
         let open = fs::read_dir(&dir)?
             .flatten()
@@ -197,7 +312,7 @@ async fn create(
             .collect();
         let meta = UploadMeta {
             id: id.clone(),
-            username: user.username.clone(),
+            username: user.user.username.clone(),
             scope: zone,
             category,
             path: rel.to_string(),
@@ -205,6 +320,7 @@ async fn create(
             size: body.size,
             created_at: now_secs(),
             exchange,
+            via: user.pc.as_ref().map(|(_, device)| device.clone()),
         };
         fs::OpenOptions::new()
             .write(true)
@@ -231,8 +347,8 @@ async fn create(
 #[actix_web::routes]
 #[get("/uploads")]
 #[get("/uploads/")]
-async fn list(user: web::ReqData<ApiUser>, config: web::Data<AppConfig>) -> HttpResponse {
-    let dir = user_dir(&config, &user.username);
+async fn list(user: Uploader, config: web::Data<AppConfig>) -> HttpResponse {
+    let dir = user_dir(&config, &user.user.username);
     let uploads: Vec<_> = fs::read_dir(&dir)
         .map(|entries| {
             entries
@@ -249,10 +365,16 @@ async fn list(user: web::ReqData<ApiUser>, config: web::Data<AppConfig>) -> Http
     reply::ok(json!({ "uploads": uploads }))
 }
 
+/// Free space and limits, for the upload screens of the Mini App and `/pc`.
+#[get("/uploads/capacity")]
+async fn capacity(_user: Uploader, config: web::Data<AppConfig>) -> HttpResponse {
+    reply::ok(crate::pc::capacity(&config))
+}
+
 #[get("/uploads/{id}")]
 async fn status(
     id: web::Path<String>,
-    user: web::ReqData<ApiUser>,
+    user: Uploader,
     config: web::Data<AppConfig>,
 ) -> HttpResponse {
     match load(&config, &user, &id) {
@@ -277,7 +399,7 @@ async fn put_chunk(
     req: HttpRequest,
     id: web::Path<String>,
     mut payload: web::Payload,
-    user: web::ReqData<ApiUser>,
+    user: Uploader,
     config: web::Data<AppConfig>,
     locks: web::Data<UploadLocks>,
 ) -> HttpResponse {
@@ -346,8 +468,9 @@ async fn put_chunk(
 
 #[post("/uploads/{id}/complete")]
 async fn complete(
+    req: HttpRequest,
     id: web::Path<String>,
-    user: web::ReqData<ApiUser>,
+    user: Uploader,
     config: web::Data<AppConfig>,
     store: web::Data<UserStore>,
     events: web::Data<crate::exchange::Events>,
@@ -369,12 +492,13 @@ async fn complete(
     }
     if let Some(owner) = &meta.exchange {
         return match crate::exchange::finish_upload(
-            &config, &store, &events, &user, owner, &part, &meta.name,
+            &config, &store, &events, &user.user, owner, &part, &meta.name,
         ) {
             Ok(item) => {
-                let _ =
-                    fs::remove_file(user_dir(&config, &user.username).join(format!("{id}.json")));
-                tracing::info!(user = %user.username, exchange = %owner, size = meta.size, "file sent to exchange (Mini App)");
+                let _ = fs::remove_file(
+                    user_dir(&config, &user.user.username).join(format!("{id}.json")),
+                );
+                tracing::info!(user = %user.user.username, exchange = %owner, size = meta.size, "file sent to exchange (Mini App)");
                 reply::ok(json!({ "item": item }))
             }
             Err(e) => reply::storage(e),
@@ -387,17 +511,23 @@ async fn complete(
     match finish_upload(
         &config,
         meta.scope,
-        &user.username,
+        &user.user.username,
         &meta.category,
         &rel,
         &part,
         &meta.name,
     ) {
         Ok(item) => {
-            let _ = fs::remove_file(user_dir(&config, &user.username).join(format!("{id}.json")));
+            let _ =
+                fs::remove_file(user_dir(&config, &user.user.username).join(format!("{id}.json")));
+            if let (Some((session, _)), Some(computers)) =
+                (&user.pc, req.app_data::<web::Data<Computers>>())
+            {
+                computers.record_upload(session, meta.size);
+            }
             tracing::info!(
-                user = %user.username, scope = meta.scope.as_str(), category = %meta.category,
-                size = meta.size, "file uploaded (Mini App)"
+                user = %user.user.username, scope = meta.scope.as_str(), category = %meta.category,
+                size = meta.size, computer = user.pc.is_some(), "file uploaded (Mini App)"
             );
             reply::ok(json!({ "item": item }))
         }
@@ -408,7 +538,7 @@ async fn complete(
 #[delete("/uploads/{id}")]
 async fn cancel(
     id: web::Path<String>,
-    user: web::ReqData<ApiUser>,
+    user: Uploader,
     config: web::Data<AppConfig>,
     locks: web::Data<UploadLocks>,
 ) -> HttpResponse {
@@ -419,7 +549,7 @@ async fn cancel(
         return reply::error(StatusCode::CONFLICT, "busy", "Эта часть ещё загружается");
     };
     let _ = fs::remove_file(&part);
-    let _ = fs::remove_file(user_dir(&config, &user.username).join(format!("{id}.json")));
+    let _ = fs::remove_file(user_dir(&config, &user.user.username).join(format!("{id}.json")));
     reply::ok(json!({ "message": "Загрузка отменена" }))
 }
 

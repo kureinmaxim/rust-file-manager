@@ -24,6 +24,7 @@ use serde_json::json;
 use crate::categories::{category_for_extension, category_rel_dir};
 use crate::config::AppConfig;
 use crate::paths::RelPath;
+use crate::pc::{Computers, PcUser};
 use crate::ratelimit::RateLimiter;
 use crate::reply::{self, now_secs};
 use crate::storage;
@@ -34,8 +35,8 @@ use crate::storage::{
 };
 use crate::tg_auth::{public_key, verify_init_data, InitData};
 use crate::tokens::{
-    issue_access, sign_url, verify_access, verify_url, AccessClaims, Disposition, TokenKeys,
-    UrlClaims, ACCESS_TTL_SECS,
+    issue_access, sign_url, verify_access, verify_pc, verify_url, AccessClaims, Disposition,
+    TokenKeys, UrlClaims, ACCESS_TTL_SECS, PC_PREFIX,
 };
 use crate::uploads;
 use crate::users::{validate_username, Account, LinkError, UserStore};
@@ -65,6 +66,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(tg_session)
             .service(tg_link)
             .service(tg_register)
+            .configure(crate::pc::configure_public)
             .service(
                 web::scope("")
                     .wrap(from_fn(require_bearer))
@@ -80,6 +82,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
                     .service(make_link)
                     .configure(crate::exchange::configure_api)
                     .configure(crate::chat::configure_api)
+                    .configure(crate::pc::configure_api)
                     .configure(uploads::configure),
             ),
     );
@@ -93,11 +96,26 @@ fn unauthorized() -> HttpResponse {
     )
 }
 
+enum Bearer {
+    App(ApiUser),
+    Computer(PcUser),
+}
+
+/// Paths a paired computer may use: the chunked upload API and its own
+/// session. Its token never becomes an `ApiUser`, so other handlers would
+/// refuse it anyway; this check gives it a clear 403 first.
+fn computer_may_use(path: &str) -> bool {
+    path == "/api/v1/uploads"
+        || path.starts_with("/api/v1/uploads/")
+        || path == "/api/v1/pc/session"
+}
+
 async fn require_bearer(
     req: ServiceRequest,
     next: Next<impl MessageBody + 'static>,
 ) -> Result<ServiceResponse<BoxBody>, Error> {
-    let user = (|| {
+    let now = now_secs();
+    let bearer = (|| {
         let config = req.app_data::<web::Data<AppConfig>>()?;
         let store = req.app_data::<web::Data<UserStore>>()?;
         let keys = req.app_data::<web::Data<TokenKeys>>()?;
@@ -107,20 +125,60 @@ async fn require_bearer(
             .to_str()
             .ok()?
             .strip_prefix("Bearer ")?;
-        let claims = verify_access(keys, token, now_secs())?;
+        if token.starts_with(PC_PREFIX) {
+            let claims = verify_pc(keys, token, now)?;
+            // Unlinking Telegram or «Завершить другие сеансы» disconnects
+            // computers too; so does «Отключить» (the session check).
+            let account = store
+                .account(&claims.u, &config.admin_username)
+                .filter(|a| a.token_version == claims.tv && a.telegram_id == Some(claims.tg))?;
+            let computers = req.app_data::<web::Data<Computers>>()?;
+            let device = computers.device(&claims.sid, &account.username, now)?;
+            return Some(Bearer::Computer(PcUser {
+                user: ApiUser {
+                    username: account.username,
+                    is_admin: account.is_admin,
+                    telegram_id: claims.tg,
+                },
+                session: claims.sid,
+                device,
+            }));
+        }
+        let claims = verify_access(keys, token, now)?;
         // Deleted users and revoked tokens (token_version bump) stop here.
         let account = store
             .account(&claims.u, &config.admin_username)
             .filter(|a| a.token_version == claims.tv && a.telegram_id == Some(claims.tg))?;
-        Some(ApiUser {
+        Some(Bearer::App(ApiUser {
             username: account.username,
             is_admin: account.is_admin,
             telegram_id: claims.tg,
-        })
+        }))
     })();
-    match user {
-        Some(user) => {
+    match bearer {
+        Some(Bearer::App(user)) => {
             req.extensions_mut().insert(user);
+            Ok(next.call(req).await?.map_into_boxed_body())
+        }
+        Some(Bearer::Computer(pc)) => {
+            if !computer_may_use(req.path()) {
+                let (req, _) = req.into_parts();
+                return Ok(ServiceResponse::new(
+                    req,
+                    reply::error(
+                        StatusCode::FORBIDDEN,
+                        "pc_forbidden",
+                        "Компьютеру доступна только загрузка файлов",
+                    ),
+                ));
+            }
+            // Uploading (not reading the status) keeps the session alive.
+            if req.method() != actix_web::http::Method::GET {
+                if let Some(computers) = req.app_data::<web::Data<Computers>>() {
+                    computers.touch(&pc.session, now);
+                }
+            }
+            req.extensions_mut().insert(pc);
             Ok(next.call(req).await?.map_into_boxed_body())
         }
         None => {
@@ -163,7 +221,7 @@ fn session_reply(
 
 /// What the Mini App may offer beyond the basics.
 fn features(config: &AppConfig) -> serde_json::Value {
-    json!({ "send_to_chat": crate::chat::enabled(config) })
+    json!({ "send_to_chat": crate::chat::enabled(config), "pc_upload": true })
 }
 
 fn limits(config: &AppConfig) -> serde_json::Value {
