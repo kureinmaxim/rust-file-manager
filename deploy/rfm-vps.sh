@@ -232,12 +232,24 @@ others_snapshot() {
   } | LC_ALL=C sort -u
 }
 
+# Что было в снимке до команды и пропало сейчас. Строка из одного имени процесса —
+# его временные сокеты (порт от 32768): у Hysteria это UDP-сессии клиентов, они
+# открываются и закрываются сами. Такое имя пропажей не считается, пока у
+# процесса есть хоть один сокет (например, основной порт). Процесс, исчезнувший
+# целиком, по-прежнему виден — и по своему порту, и по имени.
+others_missing() {
+  local after
+  after=$(others_snapshot)
+  LC_ALL=C comm -23 <(printf '%s\n' "$OTHERS_BEFORE") <(printf '%s\n' "$after") |
+    awk 'FILENAME == ARGV[1] { alive[$NF] = 1; next } / / || !($0 in alive)' <(printf '%s\n' "$after") -
+}
+
 others_check() {
   local missing i
   [[ -n $OTHERS_BEFORE ]] || return 0
   # Пересозданному контейнеру и его портам нужно несколько секунд.
   for i in 1 2 3 4 5 6; do
-    missing=$(LC_ALL=C comm -23 <(printf '%s\n' "$OTHERS_BEFORE") <(others_snapshot) | paste -sd ';' - | sed 's/;/; /g')
+    missing=$(others_missing | paste -sd ';' - | sed 's/;/; /g')
     [[ -z $missing ]] && break
     (( i < 6 )) && sleep "$WAIT_SECONDS"
   done
