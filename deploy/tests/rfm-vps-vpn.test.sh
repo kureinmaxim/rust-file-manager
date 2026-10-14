@@ -171,5 +171,30 @@ printf 'Secret-pass-1\nSecret-pass-1\n' |
 check 'первая сборка при 1500 МБ — отказ до установки' test "$rc" -eq 1
 check 'пакеты не ставились' no_line "$SB/calls.log" 'apt-get'
 
+echo '9. Временный сокет VPN закрылся за время обновления — это не пропажа'
+# Пока клиент гонит UDP через туннель, у Hysteria есть сокет на высоком порту,
+# снимок пишет его одним именем процесса. Клиент отключился — сокет закрылся,
+# а служба работает на своём порту (так было на сервере 14.10.2026).
+new_sandbox
+vpn_listeners
+printf 'udp UNCONN 0 0 0.0.0.0:45123 0.0.0.0:* users:(("hysteria",pid=12,fd=9))\n' >>"$SB/state/ss.txt"
+printf 'Secret-pass-1\nSecret-pass-1\n' |
+  RFM_DOMAIN=files.example.com HTTPS_MODE=cloudflare ENABLE_UFW=no run "$SB/eph-install" deploy --yes; rc=$?
+check 'установка успешна' test "$rc" -eq 0
+printf 'sed -i "/:45123 /d" "$SB/state/ss.txt"\n' >>"$SB/bin/cargo"
+rfm_release 1.8.0
+WAIT_SECONDS=0 run "$SB/eph" post_deploy --yes; rc=$?
+check 'обновление успешно' test "$rc" -eq 0
+check 'ложной пропажи нет' no_line "$SB/eph" 'пропало'
+check 'в итоге: другие службы на месте' has_line "$SB/eph" 'Другие службы сервера (VPN, Tailscale и др.): на месте'
+
+echo '10. Процесс VPN остановился целиком — пропажа видна'
+printf 'udp UNCONN 0 0 0.0.0.0:45123 0.0.0.0:* users:(("hysteria",pid=12,fd=9))\n' >>"$SB/state/ss.txt"
+printf 'sed -i "/hysteria/d" "$SB/state/ss.txt"\n' >>"$SB/bin/cargo"
+rfm_release 1.9.0
+WAIT_SECONDS=0 run "$SB/eph-lost" post_deploy --yes; rc=$?
+check 'пропажа — ненулевой код' test "$rc" -eq 1
+check 'названы порт и процесс' has_line "$SB/eph-lost" 'пропало: 443/udp hysteria; hysteria'
+
 printf '\nПройдено: %s, ошибок: %s\n' "$PASS" "$FAILED"
 (( FAILED == 0 ))
