@@ -17,6 +17,11 @@ function Notice({ text, error = false }) {
   return text && html`<div class=${`dr-notice ${error ? 'dr-error' : ''}`} role=${error ? 'alert' : 'status'}>${text}</div>`;
 }
 
+function ActionFeedback({ value }) {
+  if (!value) return null;
+  return html`<p class=${`dr-action-feedback ${value.state === 'error' ? 'dr-error' : ''}`} role=${value.state === 'error' ? 'alert' : 'status'}>${value.message}</p>`;
+}
+
 function ServerPicker({ onSelect, busy }) {
   const [zone, setZone] = useState('my');
   const [path, setPath] = useState('');
@@ -99,6 +104,10 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
   const [item, setItem] = useState(null);
   const [activeDocument, setActiveDocument] = useState(null);
   const documentRef = useRef(null);
+  const preparedUrl = useRef(null);
+  const [prepared, setPrepared] = useState(null);
+  const [exportStatus, setExportStatus] = useState(null);
+  const [sendStatus, setSendStatus] = useState(null);
   const [role, setRole] = useState('complaint');
   const [attachTarget, setAttachTarget] = useState('new');
   const [review, setReview] = useState(null);
@@ -116,6 +125,13 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
   const refreshToken = useRef(0);
   useMainButton(null, []);
 
+  function resetDocumentActions() {
+    if (preparedUrl.current) URL.revokeObjectURL(preparedUrl.current);
+    preparedUrl.current = null;
+    setPrepared(null); setExportStatus(null); setSendStatus(null);
+  }
+  useEffect(() => () => { if (preparedUrl.current) URL.revokeObjectURL(preparedUrl.current); }, []);
+
   async function perform(action) {
     if (lock.current) return;
     lock.current = true; setBusy(true); setError(''); setNotice(''); setProgress('Обрабатываю…');
@@ -128,10 +144,10 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
     catch (e) { if (n === refreshToken.current) setError(e.message); }
   }
   useEffect(() => { const t = setTimeout(load, 200); return () => { clearTimeout(t); refreshToken.current += 1; }; }, [query]);
-  const showItem = (value) => { setActiveDocument(null); setItem(value); setView('item'); setError(''); setText(''); };
+  const showItem = (value) => { resetDocumentActions(); setActiveDocument(null); setItem(value); setView('item'); setError(''); setText(''); };
   useEffect(() => { if (activeDocument) documentRef.current?.focus({ preventScroll: false }); }, [activeDocument]);
   const open = (id) => perform(async () => showItem(await doctorRequest('get', { case_id: id })));
-  const list = () => { setView('list'); setReview(null); setError(''); load(); };
+  const list = () => { resetDocumentActions(); setView('list'); setReview(null); setError(''); load(); };
   const add = (r, initial = '') => { setRole(r); setText(initial); setError(''); setView('source'); };
   const create = () => perform(async () => { const value = await doctorRequest('create'); setItem(value); setRole('complaint'); setText(''); setView('source'); load(); });
   async function startReview(payload, selected = item, selectedRole = role) {
@@ -143,15 +159,36 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
   }
   const mutate = (op) => perform(async () => { showItem(await doctorRequest(op, args(item), setProgress)); load(); });
   const exportDoc = (r) => perform(async () => {
-    const value = await doctorRequest('export', { case_id: item.id, role: r });
-    const bytes = Uint8Array.from(atob(value.content), (c) => c.charCodeAt(0));
-    const file = new File([bytes], value.name, { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
-    const url = URL.createObjectURL(file);
-    const a = document.createElement('a'); a.href = url; a.download = value.name; a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    setNotice('Документ подготовлен. Если iPhone не сохранил файл, нажмите «В чат».');
+    const target = { caseId: item.id, role: r };
+    setExportStatus({ ...target, state: 'working', message: 'Готовим DOCX…' });
+    try {
+      const value = await doctorRequest('export', { case_id: item.id, role: r });
+      const bytes = Uint8Array.from(atob(value.content), (c) => c.charCodeAt(0));
+      const file = new File([bytes], value.name, { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+      const url = URL.createObjectURL(file);
+      if (preparedUrl.current) URL.revokeObjectURL(preparedUrl.current);
+      preparedUrl.current = url;
+      setPrepared({ ...target, url, name: value.name });
+      // Keep the quick download when supported; the visible link below is the
+      // user-gesture fallback for Telegram desktop and browsers that block it.
+      const a = document.createElement('a'); a.href = url; a.download = value.name; a.click();
+      setExportStatus({ ...target, state: 'ready', message: 'Если загрузка не началась, нажмите «Скачать DOCX» ниже.' });
+    } catch (e) {
+      setExportStatus({ ...target, state: 'error', message: e.message });
+      throw e;
+    }
   });
-  const sendDoc = (r) => perform(async () => { const value = await doctorRequest('send_chat', { case_id: item.id, role: r }); setNotice(value.message); });
+  const sendDoc = (r) => perform(async () => {
+    const target = { caseId: item.id, role: r };
+    setSendStatus({ ...target, state: 'working', message: 'Отправляем документ в чат…' });
+    try {
+      const value = await doctorRequest('send_chat', { case_id: item.id, role: r });
+      setSendStatus({ ...target, state: 'sent', message: value.message });
+    } catch (e) {
+      setSendStatus({ ...target, state: 'error', message: e.message });
+      throw e;
+    }
+  });
 
   let content;
   if (view === 'source') content = html`<${Source} key=${`${item?.id}:${role}`} item=${item} role=${role} busy=${busy} initialText=${text} onReview=${startReview} onBack=${() => item ? setView('item') : list()} />`;
@@ -195,6 +232,9 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
           <button type="button" class="btn" disabled=${busy} onClick=${() => exportDoc('final')}><${Icon} name="download" />Скачать ответ</button>
           <button type="button" class="btn secondary" disabled=${busy} onClick=${() => sendDoc('final')}><${Icon} name="send" />Отправить в чат</button>
         </div>`}
+        ${guide.action === 'deliver' && prepared?.caseId === item.id && prepared.role === 'final' && html`<a class="btn secondary dr-full dr-download-link" href=${prepared.url} download=${prepared.name}>Скачать DOCX</a>`}
+        ${guide.action === 'deliver' && exportStatus?.caseId === item.id && exportStatus.role === 'final' && html`<${ActionFeedback} value=${exportStatus} />`}
+        ${guide.action === 'deliver' && sendStatus?.caseId === item.id && sendStatus.role === 'final' && html`<${ActionFeedback} value=${sendStatus} />`}
         ${guide.action === 'template' && html`<button class="btn dr-full" type="button" disabled=${busy} onClick=${() => reveal('template')}>Открыть шаблон</button>`}
       </section>
       ${item.notes.length > 0 && html`<details class="dr-notes"><summary>На что обратить внимание в ответе (${item.notes.length})</summary><ul>${item.notes.map((n) => html`<li>${n}</li>`)}</ul></details>`}
@@ -208,6 +248,9 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
         ${activeDocument === r && html`<div id=${`document-${item.id}-${r}`} class="dr-open-document" tabindex="-1" ref=${documentRef} role="region" aria-label=${ROLES[r]}>
           <div class="dr-document">${item.documents[r]}</div>
           <div class="dr-actions"><button type="button" disabled=${busy} onClick=${() => exportDoc(r)}><${Icon} name="download" />Скачать</button><button type="button" disabled=${busy} onClick=${() => sendDoc(r)}><${Icon} name="send" />В чат</button></div>
+          ${prepared?.caseId === item.id && prepared.role === r && !(r === 'final' && guide.action === 'deliver') && html`<a class="btn secondary dr-full dr-download-link" href=${prepared.url} download=${prepared.name}>Скачать DOCX</a>`}
+          ${exportStatus?.caseId === item.id && exportStatus.role === r && !(r === 'final' && guide.action === 'deliver') && html`<${ActionFeedback} value=${exportStatus} />`}
+          ${sendStatus?.caseId === item.id && sendStatus.role === r && !(r === 'final' && guide.action === 'deliver') && html`<${ActionFeedback} value=${sendStatus} />`}
           ${editable && r !== 'draft' && html`<button class="dr-back" type="button" disabled=${busy} onClick=${() => add(r)}>Заменить документ</button>`}
         </div>`}
       </section>`)}</div>`}
