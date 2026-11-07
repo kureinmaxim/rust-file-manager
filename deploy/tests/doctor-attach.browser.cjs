@@ -44,7 +44,7 @@ const assert = require('node:assert/strict');
     assert.equal(writes.filter((r) => r.operation === 'create').length, 1);
     assert.equal(writes.filter((r) => r.operation === 'review').length, 1);
     await page.getByRole('button', { name: 'Всё обезличено — сохранить' }).click();
-    await page.getByRole('button', { name: 'Добавить: пояснения врача' }).waitFor();
+    await page.getByRole('button', { name: 'Добавить пояснения' }).waitFor();
     await pickServerFile();
     await page.getByRole('combobox', { name: 'Что это за документ?' }).selectOption('explanation');
     const add = page.getByRole('button', { name: 'Добавить документ и проверить', exact: true });

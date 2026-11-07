@@ -4,6 +4,7 @@ import { Icon } from './widgets.js';
 import { api, qs } from './api.js';
 import { doctorRequest, readDoctorFile } from './doctor-api.js';
 import * as tg from './tg.js';
+import { caseGuide } from './doctor-flow.js';
 
 const ROLES = { complaint: 'Жалоба', explanation: 'Пояснения врача', draft: 'Черновик ИИ', final: 'Окончательный ответ', template: 'Шаблон ответа' };
 const STATUS = { needs_complaint: 'Нужна жалоба', needs_explanation: 'Нужны пояснения', ready: 'Можно составить ответ', generating: 'Ответ готовится', draft_ready: 'Проверьте черновик', final_ready: 'Ответ проверен', saved: 'В базе случаев', archived: 'В архиве' };
@@ -96,6 +97,8 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
   const [view, setView] = useState(initialFile ? 'attach' : 'list');
   const [rows, setRows] = useState(null);
   const [item, setItem] = useState(null);
+  const [activeDocument, setActiveDocument] = useState(null);
+  const documentRef = useRef(null);
   const [role, setRole] = useState('complaint');
   const [attachTarget, setAttachTarget] = useState('new');
   const [review, setReview] = useState(null);
@@ -125,7 +128,8 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
     catch (e) { if (n === refreshToken.current) setError(e.message); }
   }
   useEffect(() => { const t = setTimeout(load, 200); return () => { clearTimeout(t); refreshToken.current += 1; }; }, [query]);
-  const showItem = (value) => { setItem(value); setView('item'); setError(''); setText(''); };
+  const showItem = (value) => { setActiveDocument(null); setItem(value); setView('item'); setError(''); setText(''); };
+  useEffect(() => { if (activeDocument) documentRef.current?.focus({ preventScroll: false }); }, [activeDocument]);
   const open = (id) => perform(async () => showItem(await doctorRequest('get', { case_id: id })));
   const list = () => { setView('list'); setReview(null); setError(''); load(); };
   const add = (r, initial = '') => { setRole(r); setText(initial); setError(''); setView('source'); };
@@ -156,21 +160,61 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
     onConfirm=${() => perform(async () => { showItem(await doctorRequest('review_confirm', { review_token: review.review_token })); setReview(null); load(); })}
     onCancel=${() => perform(async () => { await doctorRequest('review_cancel', { review_token: review.review_token }); setReview(null); item ? setView('item') : list(); })} />`;
   else if (view === 'item' && item) {
+    const guide = caseGuide(item);
     const editable = !item.read_only && isWork(item) && item.status !== 'generating';
     const roles = item.kind === 'template' ? ['template'] : ['complaint', 'explanation', 'draft', 'final'];
+    const present = roles.filter((r) => item.documents[r]);
+    const answer = item.documents.final || item.documents.draft;
+    const answerRole = item.documents.final ? 'final' : 'draft';
+    const reveal = (r) => setActiveDocument(activeDocument === r ? null : r);
+    const nextAction = {
+      complaint: ['Добавить жалобу', () => add('complaint')],
+      explanation: ['Добавить пояснения', () => add('explanation')],
+      generate: ['Подготовить ответ', () => mutate('generate')],
+      review: ['Проверить и завершить', () => add('final', item.documents.draft)],
+      save: ['Завершить и сохранить в базу', () => mutate('save')],
+      restore: ['Вернуть из архива', () => mutate('archive')],
+    }[guide.action];
+    const title = ['Жалоба', 'Новое обращение'].includes(item.title) ? `Обращение ${item.id.slice(1).toUpperCase()}` : item.title;
     content = html`<button type="button" class="dr-back" disabled=${busy} onClick=${list}>← Все обращения</button>
-      <div class="dr-heading"><span class="dr-eyebrow">${item.kind === 'template' ? 'Шаблон' : `Обращение ${item.id.slice(1).toUpperCase()}`}</span><span class="dr-status">${STATUS[item.status]}</span></div>
-      <h2>${item.title}</h2><p class="dr-muted">Обновлено ${day(item.updated)} · ${item.roles.length} документа</p>
-      ${item.status === 'generating' && html`<${Notice} text="Ответ ещё готовится. Обновите карточку через некоторое время." />`}
-      <div class="dr-documents">${roles.map((r, index) => html`<section class="dr-panel" key=${r}><div class="dr-slot"><span class=${`dr-step ${item.documents[r] ? 'dr-done' : ''}`}>${item.documents[r] ? '✓' : index + 1}</span><div><h3>${ROLES[r]}</h3><small class="dr-muted">${item.documents[r] ? (r === 'draft' ? 'Проверьте перед использованием' : 'Проверено и сохранено') : 'Пока не добавлен'}</small></div></div>
-        ${item.documents[r] && html`<details><summary>Посмотреть текст</summary><div class="dr-document">${item.documents[r]}</div></details><div class="dr-actions"><button type="button" disabled=${busy} onClick=${() => exportDoc(r)}><${Icon} name="download" />Скачать</button><button type="button" disabled=${busy} onClick=${() => sendDoc(r)}><${Icon} name="send" />В чат</button></div>`}
-        ${editable && r !== 'draft' && html`<button type="button" class="btn secondary dr-full" disabled=${busy} onClick=${() => add(r)}>${item.documents[r] ? 'Заменить документ' : `Добавить: ${ROLES[r].toLowerCase()}`}</button>`}
-        ${editable && r === 'draft' && item.documents.draft && html`<button type="button" class="btn dr-full" disabled=${busy} onClick=${() => add('final', item.documents.draft)}>Проверить и оформить ответ</button>`}
-      </section>`)}</div>
-      ${item.notes.length > 0 && html`<details class="dr-panel"><summary>Что проверить в ответе (${item.notes.length})</summary><ul>${item.notes.map((n) => html`<li>${n}</li>`)}</ul></details>`}
-      ${editable && item.documents.complaint && item.documents.explanation && !item.documents.final && html`<button type="button" class="btn dr-full" disabled=${busy} onClick=${() => mutate('generate')}>${item.documents.draft ? 'Составить новый черновик' : 'Составить ответ с ИИ'}</button>`}
-      ${editable && item.documents.complaint && item.documents.final && html`<button type="button" class="btn dr-full" disabled=${busy} onClick=${() => mutate('save')}>Сохранить случай в базу примеров</button><p class="dr-muted">После сохранения этот случай поможет составлять будущие ответы.</p>`}
-      <div class="dr-actions"><button type="button" disabled=${busy} onClick=${() => open(item.id)}>Обновить</button>${!item.read_only && html`<button type="button" disabled=${busy} onClick=${() => mutate('archive')}>${item.status === 'archived' ? 'Вернуть из архива' : 'В архив'}</button>`}</div>`;
+      <div class="dr-heading"><span class="dr-eyebrow">${item.kind === 'template' ? 'Шаблон' : `№ ${item.id.slice(1).toUpperCase()}`}</span><span class="dr-status">${STATUS[item.status]}</span></div>
+      <h2>${title}</h2><p class="dr-muted dr-case-date">Обновлено ${day(item.updated)}</p>
+      ${guide.step !== null && html`<nav class="dr-progress" aria-label="Этапы обращения">${[
+        ['complaint', 'Жалоба'], ['explanation', 'Пояснения'], [answerRole, 'Ответ'],
+      ].map(([r, label], index) => html`<button type="button" key=${index} disabled=${busy || (!item.documents[r] && (!editable || index > guide.step || index === 2))}
+        aria-current=${guide.step === index ? 'step' : undefined} onClick=${() => item.documents[r] ? reveal(r) : add(r)}>
+        <span class=${(index === 2 ? item.documents.final : item.documents[r]) ? 'dr-progress-done' : ''}>${(index === 2 ? item.documents.final : item.documents[r]) ? '✓' : index + 1}</span>${label}</button>`)}</nav>`}
+      <section class="dr-next" aria-label="Следующий шаг">
+        <p class="dr-eyebrow">${guide.step === null ? (guide.action === 'deliver' ? 'Готово' : 'Документ') : `Шаг ${guide.step + 1} из 3`}</p>
+        <h3>${guide.title}</h3><p class="dr-muted">${guide.hint}</p>
+        ${answer && ['deliver', 'save', 'review'].includes(guide.action) && html`<p class="dr-answer-preview">${answer}</p>
+          <button class="dr-back" type="button" disabled=${busy} onClick=${() => reveal(answerRole)}>Прочитать ответ целиком</button>`}
+        ${nextAction && html`<button type="button" class="btn dr-full" disabled=${busy} onClick=${nextAction[1]}>${nextAction[0]}</button>`}
+        ${guide.action === 'waiting' && html`<button class="btn secondary dr-full" type="button" disabled=${busy} onClick=${() => open(item.id)}>Проверить готовность</button>`}
+        ${guide.action === 'deliver' && item.documents.final && html`<div class="dr-answer-actions">
+          <button type="button" class="btn" disabled=${busy} onClick=${() => exportDoc('final')}><${Icon} name="download" />Скачать ответ</button>
+          <button type="button" class="btn secondary" disabled=${busy} onClick=${() => sendDoc('final')}><${Icon} name="send" />Отправить в чат</button>
+        </div>`}
+        ${guide.action === 'template' && html`<button class="btn dr-full" type="button" disabled=${busy} onClick=${() => reveal('template')}>Открыть шаблон</button>`}
+      </section>
+      ${item.notes.length > 0 && html`<details class="dr-notes"><summary>На что обратить внимание в ответе (${item.notes.length})</summary><ul>${item.notes.map((n) => html`<li>${n}</li>`)}</ul></details>`}
+      <div class="dr-heading dr-documents-title"><h3>Документы обращения</h3><span class="dr-muted">${present.length}</span></div>
+      ${present.length === 0 ? html`<p class="dr-muted">Начните с кнопки «Добавить жалобу» выше.</p>` : html`
+      <div class="dr-case-documents">${present.map((r) => html`<section class="dr-document-item" key=${r}>
+        <button class="dr-document-toggle" type="button" disabled=${busy} aria-expanded=${activeDocument === r}
+          aria-controls=${`document-${item.id}-${r}`} onClick=${() => reveal(r)}><${Icon} name="file-text" />
+          <span><b>${ROLES[r]}</b>${r === 'draft' && html`<small>Черновик для проверки</small>`}</span><${Icon} name="right" />
+        </button>
+        ${activeDocument === r && html`<div id=${`document-${item.id}-${r}`} class="dr-open-document" tabindex="-1" ref=${documentRef} role="region" aria-label=${ROLES[r]}>
+          <div class="dr-document">${item.documents[r]}</div>
+          <div class="dr-actions"><button type="button" disabled=${busy} onClick=${() => exportDoc(r)}><${Icon} name="download" />Скачать</button><button type="button" disabled=${busy} onClick=${() => sendDoc(r)}><${Icon} name="send" />В чат</button></div>
+          ${editable && r !== 'draft' && html`<button class="dr-back" type="button" disabled=${busy} onClick=${() => add(r)}>Заменить документ</button>`}
+        </div>`}
+      </section>`)}</div>`}
+      <details class="dr-more" key=${`${item.id}:${item.revision}`}><summary>Другие действия</summary><div class="dr-actions"><button type="button" disabled=${busy} onClick=${() => open(item.id)}>Обновить</button>
+        ${!item.read_only && html`<button type="button" disabled=${busy || item.status === 'generating'} onClick=${() => mutate('archive')}>${item.status === 'archived' ? 'Вернуть из архива' : 'В архив'}</button>`}
+        ${editable && item.documents.draft && !item.documents.final && html`<button type="button" disabled=${busy} onClick=${() => mutate('generate')}>Подготовить другой черновик</button>`}
+      </div></details>`;
   } else if (view === 'attach' && initialFile) {
     const options = (rows || []).filter((r) => isWork(r) && r.status !== 'generating'
       && (role === 'complaint' || r.roles.includes('complaint')));
