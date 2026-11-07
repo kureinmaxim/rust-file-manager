@@ -97,6 +97,7 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
   const [rows, setRows] = useState(null);
   const [item, setItem] = useState(null);
   const [role, setRole] = useState('complaint');
+  const [attachTarget, setAttachTarget] = useState('new');
   const [review, setReview] = useState(null);
   const [tab, setTab] = useState('work');
   const [query, setQuery] = useState('');
@@ -128,7 +129,7 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
   const open = (id) => perform(async () => showItem(await doctorRequest('get', { case_id: id })));
   const list = () => { setView('list'); setReview(null); setError(''); load(); };
   const add = (r, initial = '') => { setRole(r); setText(initial); setError(''); setView('source'); };
-  const create = () => perform(async () => { const value = await doctorRequest('create'); setItem(value); setRole('complaint'); setText(''); setView(initialFile ? 'attach' : 'source'); load(); });
+  const create = () => perform(async () => { const value = await doctorRequest('create'); setItem(value); setRole('complaint'); setText(''); setView('source'); load(); });
   async function startReview(payload, selected = item, selectedRole = role) {
     await perform(async () => {
       if (payload.file) payload = { content: await readDoctorFile(payload.file) };
@@ -171,13 +172,52 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
       ${editable && item.documents.complaint && item.documents.final && html`<button type="button" class="btn dr-full" disabled=${busy} onClick=${() => mutate('save')}>Сохранить случай в базу примеров</button><p class="dr-muted">После сохранения этот случай поможет составлять будущие ответы.</p>`}
       <div class="dr-actions"><button type="button" disabled=${busy} onClick=${() => open(item.id)}>Обновить</button>${!item.read_only && html`<button type="button" disabled=${busy} onClick=${() => mutate('archive')}>${item.status === 'archived' ? 'Вернуть из архива' : 'В архив'}</button>`}</div>`;
   } else if (view === 'attach' && initialFile) {
-    const options = (rows || []).filter(isWork);
-    content = html`<button type="button" class="dr-back" onClick=${onFiles}>← К файлам</button><h2>Добавить в помощь врача</h2><p class="dr-filename">${initialFile.name}</p>
-      <label class="dr-field">Назначение документа<select value=${role} onChange=${(e) => setRole(e.target.value)}>${['complaint', 'explanation', 'final', 'template'].map((r) => html`<option value=${r}>${ROLES[r]}</option>`)}</select></label>
-      ${role === 'template' ? html`<button class="btn dr-full" disabled=${busy} onClick=${() => startReview({ source_id: initialFile.id }, null, role)}>Проверить и добавить шаблон</button>` : html`
-      <h3>К какому обращению?</h3>${item && !options.some((v) => v.id === item.id) && html`<button class="dr-row" disabled=${busy} onClick=${() => startReview({ source_id: initialFile.id }, item, role)}>${item.title}</button>`}
-      <div class="dr-list">${options.map((r) => html`<button class="dr-row" disabled=${busy} onClick=${() => perform(async () => { const full = await doctorRequest('get', { case_id: r.id }); setItem(full); const value = await doctorRequest('review', { ...args(full), role, source_id: initialFile.id }); setReview(value); setView('review'); })}><span><b>${r.title}</b><small>${day(r.updated)} · ${STATUS[r.status]}</small></span><${Icon} name="right" /></button>`)}</div>
-      <button class="btn secondary dr-full" disabled=${busy} onClick=${create}>Создать новое обращение</button>`}`;
+    const options = (rows || []).filter((r) => isWork(r) && r.status !== 'generating'
+      && (role === 'complaint' || r.roles.includes('complaint')));
+    const selected = options.find((r) => r.id === attachTarget);
+    const replacing = selected?.roles.includes(role);
+    const canAttach = role === 'template' || (role === 'complaint' && attachTarget === 'new') || Boolean(selected);
+    const attach = () => perform(async () => {
+      let target = null;
+      if (role !== 'template') {
+        target = attachTarget === 'new'
+          ? await doctorRequest('create')
+          : await doctorRequest('get', { case_id: attachTarget });
+        // If checking the file fails, retry against this case rather than creating another empty one.
+        setItem(target); setAttachTarget(target.id); load();
+      }
+      const value = await doctorRequest('review', {
+        ...(target ? args(target) : {}), role, source_id: initialFile.id,
+      }, setProgress);
+      setReview(value); setView('review');
+    });
+    const choices = html`<div class="dr-attach-choices">${options.map((r) => html`<label class="dr-choice" key=${r.id}>
+      <input type="radio" name="doctor-target" value=${r.id} checked=${attachTarget === r.id} disabled=${busy} onChange=${() => setAttachTarget(r.id)} />
+      <span><b>${r.title === 'Новое обращение' ? `Пустое обращение · ${r.id.slice(1).toUpperCase()}` : r.title}</b>
+      <small>${day(r.updated)} · ${STATUS[r.status]} · ${r.id.slice(1).toUpperCase()}</small></span>
+    </label>`)}</div>`;
+    const action = role === 'template' ? 'Проверить и добавить шаблон'
+      : attachTarget === 'new' ? 'Начать разбор этой жалобы'
+      : replacing ? 'Заменить документ и проверить' : 'Добавить документ и проверить';
+    content = html`<button type="button" class="dr-back" disabled=${busy} onClick=${onFiles}>← К файлам</button>
+      <h2>Добавить документ</h2>
+      <div class="dr-selected-file"><${Icon} name="file-text" /><div><b>${initialFile.name}</b><small>Файл уже выбран с сервера</small></div></div>
+      <label class="dr-field">Что это за документ?<select value=${role} disabled=${busy} onChange=${(e) => {
+        const next = e.target.value; setRole(next); setAttachTarget(next === 'complaint' ? 'new' : '');
+      }}>${['complaint', 'explanation', 'final', 'template'].map((r) => html`<option value=${r}>${ROLES[r]}</option>`)}</select></label>
+      ${role === 'template' ? html`<p class="dr-muted">Добавим в «Шаблоны». Привязывать к обращению не нужно.</p>` : html`
+        ${role === 'complaint' ? html`
+          <label class="dr-choice"><input type="radio" name="doctor-target" value="new" checked=${attachTarget === 'new'} disabled=${busy} onChange=${() => setAttachTarget('new')} />
+            <span><b>Начать новое обращение</b><small>Эта жалоба станет первым документом. Пояснения добавите следующим шагом.</small></span>
+          </label>
+          ${rows === null ? html`<p class="dr-muted" role="status">Проверяем существующие обращения…</p>` : options.length > 0 && html`
+            <details class="dr-panel" open=${attachTarget !== 'new'}><summary>Или добавить к существующему обращению</summary>${choices}</details>`}`
+          : html`<h3>Выберите обращение</h3><p class="dr-muted">${role === 'explanation' ? 'К какой жалобе относятся пояснения?' : 'На какую жалобу подготовлен ответ?'}</p>
+            ${rows === null ? html`<p role="status">Загружаем обращения…</p>` : options.length > 0 ? choices : html`<p class="dr-muted">Сначала добавьте жалобу в новое обращение. После этого можно будет прикрепить пояснения и ответ.</p><button type="button" class="btn secondary dr-full" disabled=${busy} onClick=${list}>К обращениям</button>`}`}
+        ${replacing && html`<${Notice} text="В этом обращении уже есть такой документ. После проверки новая версия заменит его; прежний черновик ответа при замене жалобы или пояснений будет сброшен." />`}
+      `}
+      <p class="dr-muted">Следующий шаг — проверить обезличивание. Документ сохранится после вашего подтверждения.</p>
+      <div class="dr-sticky"><button type="button" class="btn dr-full" disabled=${busy || !canAttach} onClick=${attach}>${action}</button></div>`;
   } else {
     const filtered = (rows || []).filter((r) => (tab === 'work' ? isWork(r) : tab === 'base' ? r.kind === 'case' && r.status === 'saved' : tab === 'templates' ? r.kind === 'template' : r.status === 'archived')
       && (!from || r.updated.slice(0, 10) >= from) && (!roleFilter || r.roles.includes(roleFilter)) && (!stateFilter || r.status === stateFilter));

@@ -60,3 +60,15 @@
 .dr-sticky { position:sticky; bottom:0; padding:8px 0 max(8px,env(safe-area-inset-bottom)); background:var(--bg); }
 .doctor button:disabled { opacity:.55; cursor:wait; }
 @media(min-width:640px) { .dr-cases { grid-template-columns:1fr 1fr; } .dr-documents { display:grid; grid-template-columns:1fr 1fr; gap:12px; } .dr-documents .dr-panel { margin:0; } }
+
+/* Importing an already selected file: selection and confirmation are separate. */
+.dr-selected-file { display:flex; gap:12px; align-items:center; padding:14px; border:1px solid var(--separator); border-radius:12px; background:var(--surface); margin:16px 0; }
+.dr-selected-file > .icon { color:var(--link); }
+.dr-selected-file > div { min-width:0; }
+.dr-selected-file b { display:block; overflow-wrap:anywhere; }
+.dr-selected-file small, .dr-choice small { display:block; font-size:12px; color:var(--hint); margin-top:6px; line-height:1.5; }
+.dr-attach-choices { display:grid; gap:8px; }
+.dr-choice { display:flex; align-items:flex-start; gap:12px; padding:14px; border:1px solid var(--separator); border-radius:12px; background:var(--surface); min-height:64px; cursor:pointer; margin:8px 0; }
+.dr-choice:has(input:checked) { border-color:var(--accent); }
+.dr-choice input { width:22px; height:22px; flex-shrink:0; margin:2px 0; accent-color:var(--accent); }
+.dr-choice > span { min-width:0; }
