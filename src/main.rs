@@ -8,6 +8,9 @@ mod chat;
 #[cfg(test)]
 mod chat_tests;
 mod config;
+mod doctor;
+#[cfg(test)]
+mod doctor_tests;
 mod exchange;
 mod files;
 #[cfg(test)]
@@ -197,6 +200,8 @@ async fn main() -> std::io::Result<()> {
     // «Отправить в чат»: queued by the Mini App, taken by the bot's internal API.
     let chat_jobs = web::Data::new(chat::ChatJobs::default());
     let public_jobs = chat_jobs.clone();
+    let doctor_jobs = web::Data::new(doctor::DoctorJobs::default());
+    let public_doctor_jobs = doctor_jobs.clone();
     let public_server = HttpServer::new(move || {
         let session_middleware =
             SessionMiddleware::builder(CookieSessionStore::default(), session_key.clone())
@@ -218,6 +223,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(computers.clone())
             .app_data(public_events.clone())
             .app_data(public_jobs.clone())
+            .app_data(public_doctor_jobs.clone())
             // Signed download links carry a token in the path: keep them out of the access log.
             .wrap(Logger::default().exclude_regex("^/d/"))
             .wrap(session_middleware)
@@ -271,6 +277,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(internal_config.clone())
             .app_data(exchange_events.clone())
             .app_data(chat_jobs.clone())
+            .app_data(doctor_jobs.clone())
             .app_data(user_store.clone())
             .app_data(started.clone())
             .wrap(Logger::default())

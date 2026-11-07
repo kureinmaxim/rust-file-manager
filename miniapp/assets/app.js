@@ -6,6 +6,8 @@ import * as tg from './tg.js';
 import { api, ApiError, forgetLinks, linkAccount, openSession, qs, register, session, signedUrl } from './api.js';
 import { computerCode, extOf, fmtBytes, KIND_COLOR, KIND_ICON, plural } from './format.js';
 import * as up from './upload.js';
+import { DoctorApp } from './doctor.js';
+import { doctorRequest } from './doctor-api.js';
 import { CapacityCard, Icon, QueueRow } from './widgets.js';
 
 // ---------------------------------------------------------------------------
@@ -91,6 +93,7 @@ function store(initial) {
 const ui = store({ sheet: null, dialog: null, toast: null, viewer: null });
 const nav = store({ stack: [{ name: 'home' }] });
 const data = store({ version: 0, overview: null, exchange: null });
+let doctorCapability = null;
 
 const overlayOpen = () => Boolean(ui.state.sheet || ui.state.viewer || ui.state.dialog);
 const top = () => nav.state.stack[nav.state.stack.length - 1];
@@ -955,6 +958,7 @@ function ItemSheet({ item }) {
           : html`<button class="act tap" type="button" onClick=${openFile}><${Icon} name="eye" />Открыть</button>
                  <button class="act tap" type="button" onClick=${download}><${Icon} name="download" />Скачать</button>
                  ${canSendToChat() && html`<button class="act tap" type="button" onClick=${() => sendToChat(item, close)}><${Icon} name="send" />В чат</button>`}`}
+        ${!isFolder && doctorCapability?.available && item.name.toLowerCase().endsWith('.docx') && html`<button class="act tap" type="button" onClick=${() => { close(); go({ name: 'doctor', file: item }); }}><${Icon} name="file-text" />Помощь врача</button>`}
         <button class="act tap" type="button" onClick=${rename}><${Icon} name="edit" />Переимен.</button>
         <button class="act tap danger" type="button" onClick=${remove}><${Icon} name="trash" />Удалить</button>
       </div>
@@ -1147,6 +1151,7 @@ function startStack(user) {
 
 function App() {
   const [phase, setPhase] = useState({ name: 'boot' });
+  const [doctor, setDoctor] = useState(null);
   const n = nav.use();
   const overlays = ui.use();
 
@@ -1159,6 +1164,13 @@ function App() {
         nav.set({ stack: startStack(session().user) });
         data.set({ version: data.state.version + 1, overview: null });
         setPhase({ name: 'ready' });
+        doctorCapability = null; setDoctor(null);
+        doctorRequest('status').then((value) => {
+          doctorCapability = value; setDoctor(value);
+          if (value.available && nav.state.stack.length === 1 && top().name === 'home') {
+            nav.set({ stack: [{ name: 'home' }, { name: 'doctor' }] });
+          }
+        }).catch(() => {});
       } else setPhase({ name: 'link', info: s.notLinked });
     } catch (e) {
       setPhase({ name: 'error', error: e });
@@ -1199,14 +1211,18 @@ function App() {
 
   const screen = top();
   let content;
-  if (screen.name === 'browse') content = html`<${Browse} screen=${screen} key=${`${screen.zone}|${screen.category}|${screen.path}|${n.stack.length}`} />`;
+  if (screen.name === 'doctor') content = html`<${DoctorApp} key=${screen.file?.id || 'doctor'} capability=${doctor} initialFile=${screen.file} onFiles=${() => nav.set({ stack: [{ name: 'home' }] })} useMainButton=${useMainButton} />`;
+  else if (screen.name === 'browse') content = html`<${Browse} screen=${screen} key=${`${screen.zone}|${screen.category}|${screen.path}|${n.stack.length}`} />`;
   else if (screen.name === 'uploads') content = html`<${Uploads} screen=${screen} />`;
   else if (screen.name === 'exchange') content = html`<${Exchange} screen=${screen} key=${screen.owner || ''} />`;
   else if (screen.name === 'settings') content = html`<${Settings} onRelink=${start} />`;
   else if (screen.name === 'computers') content = html`<${Computers} screen=${screen} />`;
   else content = html`<${Home} />`;
 
-  return html`${content}
+  return html`${doctor?.available && html`<nav class="workspace-tabs" aria-label="Рабочие разделы">
+    <button type="button" aria-pressed=${screen.name === 'doctor'} onClick=${() => nav.set({ stack: [{ name: 'home' }, { name: 'doctor' }] })}>Помощь врача</button>
+    <button type="button" aria-pressed=${screen.name !== 'doctor'} onClick=${() => nav.set({ stack: [{ name: 'home' }] })}>Остальные файлы</button>
+  </nav>`}${content}
     ${overlays.sheet && (overlays.sheet.item.direction
       ? html`<${ExchangeSheet} item=${overlays.sheet.item} key=${overlays.sheet.item.id} />`
       : html`<${ItemSheet} item=${overlays.sheet.item} key=${overlays.sheet.item.id} />`)}

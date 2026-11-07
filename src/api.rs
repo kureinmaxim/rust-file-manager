@@ -82,6 +82,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
                     .service(make_link)
                     .configure(crate::exchange::configure_api)
                     .configure(crate::chat::configure_api)
+                    .configure(crate::doctor::configure_api)
                     .configure(crate::pc::configure_api)
                     .configure(uploads::configure),
             ),

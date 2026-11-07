@@ -42,7 +42,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .service(post_bind)
             .service(post_unbind)
             .service(get_events)
-            .configure(crate::chat::configure_internal),
+            .configure(crate::chat::configure_internal)
+            .configure(crate::doctor::configure_internal),
     );
 }
 
