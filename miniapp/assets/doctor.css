@@ -88,7 +88,6 @@
 .dr-answer-preview { display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; font-size:15px; line-height:1.6; white-space:pre-wrap; margin-bottom:0; }
 .dr-answer-actions { display:grid; gap:8px; margin-top:10px; }
 .dr-answer-actions .btn { width:100%; min-height:48px; display:flex; align-items:center; justify-content:center; gap:8px; padding:12px 8px; }
-.dr-download-link { display:flex; align-items:center; justify-content:center; min-height:48px; text-decoration:none; }
 .dr-action-feedback { margin:8px 0 0; padding:10px 12px; border-left:3px solid var(--accent); border-radius:6px; background:var(--fill); color:var(--hint); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
 .dr-action-feedback.dr-error { color:var(--danger); border-color:var(--danger); }
 .dr-documents-title { margin-top:22px; }

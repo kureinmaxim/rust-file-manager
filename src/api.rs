@@ -61,32 +61,34 @@ const DOWNLOAD_URL_TTL: u64 = 5 * 60;
 const STREAM_URL_TTL: u64 = 6 * 60 * 60;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(signed_download).service(
-        web::scope("/api/v1")
-            .service(tg_session)
-            .service(tg_link)
-            .service(tg_register)
-            .configure(crate::pc::configure_public)
-            .service(
-                web::scope("")
-                    .wrap(from_fn(require_bearer))
-                    .service(me)
-                    .service(tg_unlink)
-                    .service(revoke_all)
-                    .service(overview)
-                    .service(list_files)
-                    .service(create_folder)
-                    .service(item_details)
-                    .service(rename_item)
-                    .service(delete_item)
-                    .service(make_link)
-                    .configure(crate::exchange::configure_api)
-                    .configure(crate::chat::configure_api)
-                    .configure(crate::doctor::configure_api)
-                    .configure(crate::pc::configure_api)
-                    .configure(uploads::configure),
-            ),
-    );
+    cfg.service(signed_download)
+        .service(crate::doctor::download)
+        .service(
+            web::scope("/api/v1")
+                .service(tg_session)
+                .service(tg_link)
+                .service(tg_register)
+                .configure(crate::pc::configure_public)
+                .service(
+                    web::scope("")
+                        .wrap(from_fn(require_bearer))
+                        .service(me)
+                        .service(tg_unlink)
+                        .service(revoke_all)
+                        .service(overview)
+                        .service(list_files)
+                        .service(create_folder)
+                        .service(item_details)
+                        .service(rename_item)
+                        .service(delete_item)
+                        .service(make_link)
+                        .configure(crate::exchange::configure_api)
+                        .configure(crate::chat::configure_api)
+                        .configure(crate::doctor::configure_api)
+                        .configure(crate::pc::configure_api)
+                        .configure(uploads::configure),
+                ),
+        );
 }
 
 fn unauthorized() -> HttpResponse {

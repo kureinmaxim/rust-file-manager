@@ -341,6 +341,107 @@ async fn invalid_operations_and_excess_jobs_are_rejected() {
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
 }
 
+#[actix_web::test]
+async fn export_uses_short_lived_account_bound_https_download() {
+    let env = Env::new();
+    let app = env.app().await;
+    heartbeat(&app).await;
+    let alice = login(&app, ALICE).await;
+    let (status, started) = send(
+        &app,
+        submit(
+            &alice,
+            "export-request-01",
+            "export",
+            json!({"case_id": "w1234567", "role": "final"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let job = started["job"].as_str().unwrap();
+    let (_, taken) = send(
+        &app,
+        bearer(
+            test::TestRequest::get().uri("/internal/v1/doctor/jobs?wait=0"),
+            SERVICE,
+        ),
+    )
+    .await;
+    assert_eq!(taken["jobs"][0]["operation"], "export");
+    let (status, _) = send(
+        &app,
+        bearer(
+            test::TestRequest::post()
+                .uri(&format!("/internal/v1/doctor/jobs/{job}/done"))
+                .set_json(json!({
+                    "ok": true,
+                    "data": {"content": "UEsDBA==", "name": "Ответ-w1234567.docx"}
+                })),
+            SERVICE,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (_, done) = send(
+        &app,
+        bearer(
+            test::TestRequest::get().uri(&format!("/api/v1/doctor/jobs/{job}")),
+            &alice,
+        ),
+    )
+    .await;
+    let url = done["result"]["data"]["url"].as_str().unwrap();
+    assert!(url.starts_with("/doctor-download/"));
+    assert_eq!(done["result"]["data"]["name"], "Ответ-w1234567.docx");
+    assert!(done["result"]["data"]["content"].is_null());
+    let expires_at = done["result"]["data"]["expires_at"].as_u64().unwrap();
+    assert!(expires_at > crate::reply::now_secs());
+    assert!(expires_at <= crate::reply::now_secs() + 5 * 60);
+
+    let response = test::call_service(&app, test::TestRequest::get().uri(url).to_request()).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(header::CONTENT_TYPE).unwrap(),
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
+    assert!(response
+        .headers()
+        .get(header::CONTENT_DISPOSITION)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("attachment"));
+    assert_eq!(
+        response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .unwrap(),
+        "https://web.telegram.org"
+    );
+    assert_eq!(&test::read_body(response).await[..], b"PK\x03\x04");
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::default()
+            .method(actix_web::http::Method::HEAD)
+            .uri(url)
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers().get(header::CONTENT_LENGTH).unwrap(), "4");
+    assert!(test::read_body(response).await.is_empty());
+
+    env.store.bump_token_version("alice", "admin").unwrap();
+    let response = test::call_service(&app, test::TestRequest::get().uri(url).to_request()).await;
+    assert_eq!(
+        response.status(),
+        StatusCode::GONE,
+        "revoked accounts cannot use old links"
+    );
+}
+
 /// Opt-in local browser harness. The test signing key and synthetic accounts
 /// exist only under cfg(test); the production binary keeps Telegram verification.
 #[actix_web::test]

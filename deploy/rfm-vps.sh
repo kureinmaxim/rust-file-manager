@@ -818,6 +818,17 @@ server {
         proxy_read_timeout 300;
     }
 
+    # В пути временной ссылки врача лежит токен: не писать её в журнал
+    location /doctor-download/ {
+        access_log off;
+        proxy_pass http://127.0.0.1:$port;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 60;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:$port;
         proxy_http_version 1.1;

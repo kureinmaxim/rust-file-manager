@@ -33,6 +33,7 @@ pub struct TokenKeys {
     access: [u8; 32],
     url: [u8; 32],
     pc: [u8; 32],
+    doctor_download: [u8; 32],
 }
 
 impl TokenKeys {
@@ -41,13 +42,21 @@ impl TokenKeys {
         let mut access = [0u8; 32];
         let mut url = [0u8; 32];
         let mut pc = [0u8; 32];
+        let mut doctor_download = [0u8; 32];
         hk.expand(b"rfm/v1/access", &mut access)
             .expect("32 bytes is a valid HKDF length");
         hk.expand(b"rfm/v1/url", &mut url)
             .expect("32 bytes is a valid HKDF length");
         hk.expand(b"rfm/v1/pc", &mut pc)
             .expect("32 bytes is a valid HKDF length");
-        Self { access, url, pc }
+        hk.expand(b"rfm/v1/doctor-download", &mut doctor_download)
+            .expect("32 bytes is a valid HKDF length");
+        Self {
+            access,
+            url,
+            pc,
+            doctor_download,
+        }
     }
 }
 
@@ -159,6 +168,29 @@ pub fn sign_url(keys: &TokenKeys, claims: &UrlClaims) -> String {
 
 pub fn verify_url(keys: &TokenKeys, token: &str, now: u64) -> Option<UrlClaims> {
     let claims: UrlClaims = verify(&keys.url, token)?;
+    (claims.exp > now).then_some(claims)
+}
+
+/// Short-lived, account-bound link to a DOCX held in the in-memory doctor queue.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DoctorDownloadClaims {
+    pub u: String,
+    pub tv: u32,
+    pub tg: i64,
+    pub j: String,
+    pub exp: u64,
+}
+
+pub fn issue_doctor_download(keys: &TokenKeys, claims: &DoctorDownloadClaims) -> String {
+    sign(&keys.doctor_download, claims)
+}
+
+pub fn verify_doctor_download(
+    keys: &TokenKeys,
+    token: &str,
+    now: u64,
+) -> Option<DoctorDownloadClaims> {
+    let claims: DoctorDownloadClaims = verify(&keys.doctor_download, token)?;
     (claims.exp > now).then_some(claims)
 }
 

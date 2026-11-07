@@ -6,8 +6,9 @@ use std::io::Read;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use actix_web::http::header;
 use actix_web::http::StatusCode;
-use actix_web::{get, post, web, HttpResponse};
+use actix_web::{get, post, route, web, HttpRequest, HttpResponse};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -16,11 +17,16 @@ use crate::api::{self, ApiUser};
 use crate::config::AppConfig;
 use crate::reply;
 use crate::storage::StorageError;
+use crate::tokens::{
+    issue_doctor_download, verify_doctor_download, DoctorDownloadClaims, TokenKeys,
+};
+use crate::users::UserStore;
 
 const FILE_LIMIT: usize = 5 * 1024 * 1024;
 const BODY_LIMIT: usize = 7 * 1024 * 1024;
 const MEMORY_LIMIT: usize = 32 * 1024 * 1024;
 const TTL: Duration = Duration::from_secs(600);
+const DOWNLOAD_TTL_SECS: u64 = 5 * 60;
 const OPERATIONS: &[&str] = &[
     "status",
     "list",
@@ -248,6 +254,9 @@ async fn poll(
     user: web::ReqData<ApiUser>,
     id: web::Path<String>,
     jobs: web::Data<DoctorJobs>,
+    config: web::Data<AppConfig>,
+    store: web::Data<UserStore>,
+    keys: web::Data<TokenKeys>,
 ) -> HttpResponse {
     let mut state = jobs.state.lock().expect("doctor jobs");
     state.purge();
@@ -269,7 +278,131 @@ async fn poll(
     } else {
         "running"
     };
-    reply::ok(json!({"state": phase, "result": job.result}))
+    let result = match job.result.as_ref() {
+        Some(result) if job.operation == "export" && result["ok"] == true => {
+            let Some(name) = result["data"]["name"].as_str() else {
+                return reply::error(
+                    StatusCode::BAD_GATEWAY,
+                    "doctor_export",
+                    "Не удалось подготовить DOCX.",
+                );
+            };
+            let Some(account) = store
+                .account(&user.username, &config.admin_username)
+                .filter(|a| a.telegram_id == Some(user.telegram_id))
+            else {
+                return reply::error(StatusCode::UNAUTHORIZED, "unauthorized", "Сеанс истёк.");
+            };
+            let expires_at = reply::now_secs() + DOWNLOAD_TTL_SECS;
+            let token = issue_doctor_download(
+                &keys,
+                &DoctorDownloadClaims {
+                    u: user.username.clone(),
+                    tv: account.token_version,
+                    tg: user.telegram_id,
+                    j: id.to_string(),
+                    exp: expires_at,
+                },
+            );
+            json!({ "ok": true, "data": {
+                "url": format!("/doctor-download/{token}"),
+                "name": name,
+                "expires_at": expires_at
+            } })
+        }
+        Some(result) => result.clone(),
+        None => Value::Null,
+    };
+    reply::ok(json!({"state": phase, "result": result}))
+}
+
+/// Short-lived public URL used by Telegram's native Mini App download flow.
+#[route("/doctor-download/{token}", method = "GET", method = "HEAD")]
+pub async fn download(
+    req: HttpRequest,
+    token: web::Path<String>,
+    config: web::Data<AppConfig>,
+    store: web::Data<UserStore>,
+    keys: web::Data<TokenKeys>,
+    jobs: web::Data<DoctorJobs>,
+) -> HttpResponse {
+    let expired = || {
+        reply::error(
+            StatusCode::GONE,
+            "doctor_expired",
+            "Ссылка на документ устарела. Подготовьте файл ещё раз.",
+        )
+    };
+    let Some(claims) = verify_doctor_download(&keys, &token, reply::now_secs()) else {
+        return expired();
+    };
+    if store
+        .account(&claims.u, &config.admin_username)
+        .is_none_or(|account| {
+            account.token_version != claims.tv || account.telegram_id != Some(claims.tg)
+        })
+    {
+        return expired();
+    }
+    let file = {
+        let mut state = jobs.state.lock().expect("doctor jobs");
+        state.purge();
+        let Some(job) = state.jobs.get(&claims.j).filter(|job| {
+            job.operation == "export" && job.telegram_id == claims.tg && job.username == claims.u
+        }) else {
+            return expired();
+        };
+        let Some(result) = job.result.as_ref().filter(|result| result["ok"] == true) else {
+            return expired();
+        };
+        let (Some(name), Some(content)) = (
+            result["data"]["name"].as_str(),
+            result["data"]["content"].as_str(),
+        ) else {
+            return expired();
+        };
+        if name.len() > 180
+            || !name.ends_with(".docx")
+            || name
+                .chars()
+                .any(|c| c.is_control() || c == '/' || c == '\\')
+            || content.len() > FILE_LIMIT.div_ceil(3) * 4
+        {
+            return expired();
+        }
+        let Ok(bytes) = STANDARD.decode(content) else {
+            return expired();
+        };
+        if bytes.is_empty() || bytes.len() > FILE_LIMIT {
+            return expired();
+        }
+        (name.to_owned(), bytes)
+    };
+    let (name, bytes) = file;
+    let mut response = HttpResponse::Ok();
+    response
+        .insert_header((
+            header::CONTENT_TYPE,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ))
+        .insert_header(api::disposition(
+            actix_web::http::header::DispositionType::Attachment,
+            &name,
+        ))
+        .insert_header((
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            "https://web.telegram.org",
+        ))
+        .insert_header((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
+        .insert_header((header::CACHE_CONTROL, "private, no-store"))
+        .insert_header((header::REFERRER_POLICY, "no-referrer"));
+    if req.method() == actix_web::http::Method::HEAD {
+        response
+            .insert_header((header::CONTENT_LENGTH, bytes.len().to_string()))
+            .finish()
+    } else {
+        response.body(bytes)
+    }
 }
 
 #[derive(Deserialize)]

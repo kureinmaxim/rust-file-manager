@@ -104,7 +104,6 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
   const [item, setItem] = useState(null);
   const [activeDocument, setActiveDocument] = useState(null);
   const documentRef = useRef(null);
-  const preparedUrl = useRef(null);
   const [prepared, setPrepared] = useState(null);
   const [exportStatus, setExportStatus] = useState(null);
   const [sendStatus, setSendStatus] = useState(null);
@@ -126,11 +125,8 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
   useMainButton(null, []);
 
   function resetDocumentActions() {
-    if (preparedUrl.current) URL.revokeObjectURL(preparedUrl.current);
-    preparedUrl.current = null;
     setPrepared(null); setExportStatus(null); setSendStatus(null);
   }
-  useEffect(() => () => { if (preparedUrl.current) URL.revokeObjectURL(preparedUrl.current); }, []);
 
   async function perform(action) {
     if (lock.current) return;
@@ -163,21 +159,30 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
     setExportStatus({ ...target, state: 'working', message: 'Готовим DOCX…' });
     try {
       const value = await doctorRequest('export', { case_id: item.id, role: r });
-      const bytes = Uint8Array.from(atob(value.content), (c) => c.charCodeAt(0));
-      const file = new File([bytes], value.name, { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
-      const url = URL.createObjectURL(file);
-      if (preparedUrl.current) URL.revokeObjectURL(preparedUrl.current);
-      preparedUrl.current = url;
-      setPrepared({ ...target, url, name: value.name });
-      // Keep the quick download when supported; the visible link below is the
-      // user-gesture fallback for Telegram desktop and browsers that block it.
-      const a = document.createElement('a'); a.href = url; a.download = value.name; a.click();
-      setExportStatus({ ...target, state: 'ready', message: 'Если загрузка не началась, нажмите «Скачать DOCX» ниже.' });
+      if (!value.url || !value.name || !value.expires_at) throw new Error('Не удалось подготовить ссылку для скачивания. Повторите действие.');
+      setPrepared({ ...target, url: value.url, name: value.name, expiresAt: value.expires_at });
+      setExportStatus({ ...target, state: 'ready', message: 'Файл подготовлен. Нажмите «Скачать DOCX».' });
     } catch (e) {
       setExportStatus({ ...target, state: 'error', message: e.message });
       throw e;
     }
   });
+  const downloadPrepared = (r) => {
+    if (prepared?.caseId !== item.id || prepared.role !== r) return;
+    if (prepared.expiresAt <= Math.floor(Date.now() / 1000)) {
+      setPrepared(null);
+      setExportStatus({ caseId: item.id, role: r, state: 'error', message: 'Ссылка истекла. Нажмите «Подготовить DOCX» ещё раз.' });
+      return;
+    }
+    try {
+      // This button is a direct user gesture and the URL is real HTTPS, which
+      // Telegram's native downloadFile API requires (blob: links open externally).
+      tg.download(prepared.url, prepared.name);
+      setExportStatus({ caseId: item.id, role: r, state: 'ready', message: 'Если Telegram не предложил сохранить файл, отправьте его себе в чат.' });
+    } catch (e) {
+      setExportStatus({ caseId: item.id, role: r, state: 'error', message: e.message });
+    }
+  };
   const sendDoc = (r) => perform(async () => {
     const target = { caseId: item.id, role: r };
     setSendStatus({ ...target, state: 'working', message: 'Отправляем документ в чат…' });
@@ -229,10 +234,9 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
         ${nextAction && html`<button type="button" class="btn dr-full" disabled=${busy} onClick=${nextAction[1]}>${nextAction[0]}</button>`}
         ${guide.action === 'waiting' && html`<button class="btn secondary dr-full" type="button" disabled=${busy} onClick=${() => open(item.id)}>Проверить готовность</button>`}
         ${guide.action === 'deliver' && item.documents.final && html`<div class="dr-answer-actions">
-          <button type="button" class="btn" disabled=${busy} onClick=${() => exportDoc('final')}><${Icon} name="download" />Скачать ответ</button>
+          <button type="button" class="btn" disabled=${busy} onClick=${() => prepared?.caseId === item.id && prepared.role === 'final' ? downloadPrepared('final') : exportDoc('final')}><${Icon} name="download" />${prepared?.caseId === item.id && prepared.role === 'final' ? 'Скачать DOCX' : 'Подготовить DOCX'}</button>
           <button type="button" class="btn secondary" disabled=${busy} onClick=${() => sendDoc('final')}><${Icon} name="send" />Отправить в чат</button>
         </div>`}
-        ${guide.action === 'deliver' && prepared?.caseId === item.id && prepared.role === 'final' && html`<a class="btn secondary dr-full dr-download-link" href=${prepared.url} download=${prepared.name}>Скачать DOCX</a>`}
         ${guide.action === 'deliver' && exportStatus?.caseId === item.id && exportStatus.role === 'final' && html`<${ActionFeedback} value=${exportStatus} />`}
         ${guide.action === 'deliver' && sendStatus?.caseId === item.id && sendStatus.role === 'final' && html`<${ActionFeedback} value=${sendStatus} />`}
         ${guide.action === 'template' && html`<button class="btn dr-full" type="button" disabled=${busy} onClick=${() => reveal('template')}>Открыть шаблон</button>`}
@@ -247,8 +251,7 @@ export function DoctorApp({ capability, initialFile, onFiles, useMainButton }) {
         </button>
         ${activeDocument === r && html`<div id=${`document-${item.id}-${r}`} class="dr-open-document" tabindex="-1" ref=${documentRef} role="region" aria-label=${ROLES[r]}>
           <div class="dr-document">${item.documents[r]}</div>
-          <div class="dr-actions"><button type="button" disabled=${busy} onClick=${() => exportDoc(r)}><${Icon} name="download" />Скачать</button><button type="button" disabled=${busy} onClick=${() => sendDoc(r)}><${Icon} name="send" />В чат</button></div>
-          ${prepared?.caseId === item.id && prepared.role === r && !(r === 'final' && guide.action === 'deliver') && html`<a class="btn secondary dr-full dr-download-link" href=${prepared.url} download=${prepared.name}>Скачать DOCX</a>`}
+          <div class="dr-actions"><button type="button" disabled=${busy} onClick=${() => prepared?.caseId === item.id && prepared.role === r ? downloadPrepared(r) : exportDoc(r)}><${Icon} name="download" />${prepared?.caseId === item.id && prepared.role === r ? 'Скачать DOCX' : 'Подготовить DOCX'}</button><button type="button" disabled=${busy} onClick=${() => sendDoc(r)}><${Icon} name="send" />В чат</button></div>
           ${exportStatus?.caseId === item.id && exportStatus.role === r && !(r === 'final' && guide.action === 'deliver') && html`<${ActionFeedback} value=${exportStatus} />`}
           ${sendStatus?.caseId === item.id && sendStatus.role === r && !(r === 'final' && guide.action === 'deliver') && html`<${ActionFeedback} value=${sendStatus} />`}
           ${editable && r !== 'draft' && html`<button class="dr-back" type="button" disabled=${busy} onClick=${() => add(r)}>Заменить документ</button>`}

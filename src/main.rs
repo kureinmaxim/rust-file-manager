@@ -224,8 +224,8 @@ async fn main() -> std::io::Result<()> {
             .app_data(public_events.clone())
             .app_data(public_jobs.clone())
             .app_data(public_doctor_jobs.clone())
-            // Signed download links carry a token in the path: keep them out of the access log.
-            .wrap(Logger::default().exclude_regex("^/d/"))
+            // Signed download links carry tokens in the path: keep them out of the access log.
+            .wrap(Logger::default().exclude_regex("^/(?:d/|doctor-download/)"))
             .wrap(session_middleware)
             // Mini App API (Bearer tokens) — before the cookie-protected catch-all scope.
             .configure(|cfg| {

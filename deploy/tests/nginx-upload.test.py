@@ -168,6 +168,14 @@ class UploadRouting(unittest.TestCase):
                 for path in ("/api/v1/uploads", "/api/v1/uploads/", "/api/v1/uploads/id"):
                     self.assertEqual(request(port, "GET", path, auth=False)[0], 401)
 
+    def test_doctor_download_tokens_are_not_written_to_nginx_logs(self):
+        for name, template in self.templates.items():
+            with self.subTest(template=name):
+                match = re.search(r"location /doctor-download/ \{([^}]*)\}", template)
+                self.assertIsNotNone(match)
+                self.assertIn("access_log off;", match.group(1))
+                self.assertIn("proxy_pass http://127.0.0.1:", match.group(1))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
