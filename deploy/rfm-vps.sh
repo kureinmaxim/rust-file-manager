@@ -93,6 +93,7 @@ FM_BUILD=''              # его каталог сборки
 LISTEN_BEFORE=''         # внешние порты до удаления (для ufw)
 OTHERS_BEFORE=''         # другие службы сервера до начала команды (others_snapshot)
 SUMMARY=()
+FM_UPDATE_STATE=''
 TODO=()
 
 # --- Вывод -------------------------------------------------------------------
@@ -501,6 +502,20 @@ drop_refs() {  # каталог префикс — временные ссылк
 }
 
 # --- Файловый менеджер -------------------------------------------------------
+# Только подсказка: резервные копии и сброс правок без решения пользователя не делаем.
+manual_changes_help() {  # каталог
+  local quoted
+  printf -v quoted '%q' "$1"
+  say "Ручные правки оставлены на месте. Сначала сохраните их резервную копию:"
+  say '  update_backup_dir=$(mktemp -d /root/post-deploy-backup.XXXXXX)'
+  say "  git -C $quoted diff --binary --output=\"\$update_backup_dir/tracked-changes.patch\" HEAD"
+  say '  chmod 600 "$update_backup_dir/tracked-changes.patch"'
+  say "  git -C $quoted status --short"
+  say "Патч сохраняет только изменения отслеживаемых файлов; новые файлы скопируйте отдельно."
+  say "После проверки копии решите, как объединить правки с новой версией; затем повторите post_deploy."
+  say "--force не разрешает перезаписывать ручные правки."
+}
+
 fm_checkout() {  # каталог ref
   local dir=$1 ref=$2 label url ver n=0 best='' best_ver='' best_label='' existed=0
   local -a depth
@@ -522,7 +537,10 @@ fm_checkout() {  # каталог ref
     [[ -d $dir/.git ]] || { fail "Код rust-file-manager не получен ни из одного источника ($(source_labels fm))"; return 1; }
   fi
   if [[ -n $(git -C "$dir" status --porcelain --untracked-files=no 2>/dev/null) ]]; then
-    fail "В $dir изменены файлы — не трогаю. Сохраните правки или удалите каталог"
+    fail "В $dir изменены файлы — обновление НЕ выполнено"
+    git -C "$dir" status --short --untracked-files=no >&2
+    manual_changes_help "$dir"
+    SUMMARY+=("Файловый менеджер: обновление НЕ выполнено — ручные правки в $dir; прежняя программа оставлена")
     return 1
   fi
   while read -r label url; do
@@ -818,6 +836,7 @@ EOF
 # возвращает прежнюю программу.
 fm_update() {
   local dir ref head running backup old_ver
+  FM_UPDATE_STATE=failed
   dir=$(fm_build_dir)
   ref=${RFM_REF:-$(state_get RFM_REF)}; ref=${ref:-main}
   step "Файловый менеджер: обновление из $ref"
@@ -831,11 +850,13 @@ fm_update() {
   if ! primary_src "$FM_SOURCE" && [[ -z $RFM_REF ]] &&
      version_gt "$(fm_version)" "$(grep -m1 '^version' "$dir/Cargo.toml" | cut -d'"' -f2)"; then
     warn "в источнике «$FM_SOURCE» версия старее работающей — файловый менеджер не трогаю"
+    FM_UPDATE_STATE=unchanged
     SUMMARY+=("Файловый менеджер: без изменений — источник «$FM_SOURCE» отстаёт, работает $(fm_version)")
     return 0
   fi
   if [[ -n $running && $head == "$running"* ]] && (( ! FORCE )) && systemctl is-active --quiet "$RFM_UNIT"; then
     ok "уже последняя версия"
+    FM_UPDATE_STATE=unchanged
     SUMMARY+=("Файловый менеджер: без изменений, $(fm_version)")
     return 0
   fi
@@ -846,6 +867,7 @@ fm_update() {
   fm_build "$dir" || return 1
   if cmp -s "$dir/target/release/rust-file-manager" "$RFM_BIN" && (( ! FORCE )) && systemctl is-active --quiet "$RFM_UNIT"; then
     ok "собранная программа совпадает с установленной"
+    FM_UPDATE_STATE=unchanged
     SUMMARY+=("Файловый менеджер: без изменений, $(fm_version)")
     return 0
   fi
@@ -869,7 +891,8 @@ fm_update() {
     prune_backups "$RFM_BACKUPS" 'rust-file-manager-*'
     prune_backups "$RFM_BACKUPS" 'data-*.tar'
     state_set RFM_BUILD_DIR "$dir"
-    SUMMARY+=("Файловый менеджер: $old_ver → $(fm_version) (${head:0:7})")
+    FM_UPDATE_STATE=updated
+    SUMMARY+=("Файловый менеджер: $old_ver → $(fm_version) (${head:0:7}); перезапуск подтверждён журналом запуска и проверкой сайта/API")
     return 0
   fi
   fail "Новая версия не прошла проверку — возвращаю прежнюю ($old_ver)"
@@ -1439,7 +1462,13 @@ check_updates() {
 final_checks() {
   local rc=0
   step "Проверка"
-  if systemctl is-active --quiet "$RFM_UNIT"; then ok "файловый менеджер $(fm_version) работает"
+  if systemctl is-active --quiet "$RFM_UNIT"; then
+      if [[ $FM_UPDATE_STATE == failed ]]; then
+        warn "Файловый менеджер $(fm_version) ($(fm_commit)): служба работает, но обновление НЕ выполнено"
+        rc=1
+      else
+        ok "файловый менеджер $(fm_version) ($(fm_commit)), systemd: $RFM_UNIT работает"
+      fi
   else fail "файловый менеджер не работает"; rc=1; fi
   if (( INSTALLED_NOW )); then
     TODO+=("Войдите на $(env_get "$RFM_ENV" PUBLIC_BASE_URL)/login логином администратора и пригласите участников")
