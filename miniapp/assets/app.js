@@ -1145,6 +1145,7 @@ function startStack(user) {
     const owner = link.slice('exchange:'.length);
     if (owner && user && user.is_admin) stack.push({ name: 'exchange', owner });
   }
+  if (link === 'doctor') stack.push({ name: 'doctor' });
   if (link.startsWith('pc_')) stack.push({ name: 'computers', code: link });
   return stack;
 }

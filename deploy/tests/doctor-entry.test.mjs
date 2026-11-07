@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+const source = await readFile(new URL('../../miniapp/assets/app.js', import.meta.url), 'utf8');
+const start = source.indexOf('function startStack(user) {');
+const end = source.indexOf('\n}\n', start) + 2;
+const route = new Function('link', 'user', `let deepLink = link; ${source.slice(start, end)}; return startStack(user);`);
+assert.deepEqual(route('doctor', {}), [{ name: 'home' }, { name: 'doctor' }]);
+assert.deepEqual(route('', {}), [{ name: 'home' }]);
+assert.deepEqual(route('pc_abc', {}), [{ name: 'home' }, { name: 'computers', code: 'pc_abc' }]);
+assert.deepEqual(route('exchange', {}), [{ name: 'home' }, { name: 'exchange' }]);
+assert.deepEqual(route('exchange:anna', { is_admin: true }), [{ name: 'home' }, { name: 'exchange' }, { name: 'exchange', owner: 'anna' }]);
+console.log('Chat link opens doctor workspace; home, exchange and PC routes preserved.');
